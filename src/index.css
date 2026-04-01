@@ -1,0 +1,329 @@
+@import "tailwindcss";
+
+@theme {
+  --color-surface-container-highest: #e2e2e2;
+  --color-primary-container: #1c1c1a;
+  --color-on-primary-fixed-variant: #474745;
+  --color-on-error: #ffffff;
+  --color-on-primary-fixed: #1c1c1a;
+  --color-on-error-container: #93000a;
+  --color-on-surface-variant: #464742;
+  --color-on-surface: #1a1c1c;
+  --color-on-primary-container: #858382;
+  --color-secondary: #695d44;
+  --color-secondary-fixed-dim: #d5c5a6;
+  --color-inverse-surface: #2f3131;
+  --color-surface-bright: #f9f9f9;
+  --color-outline: #777771;
+  --color-on-background: #1a1c1c;
+  --color-surface-tint: #5f5e5d;
+  --color-on-secondary-fixed: #231a07;
+  --color-surface-variant: #e2e2e2;
+  --color-inverse-on-surface: #f1f1f1;
+  --color-secondary-fixed: #f2e1c1;
+  --color-primary: #000000;
+  --color-on-primary: #ffffff;
+  --color-inverse-primary: #c9c6c4;
+  --color-on-secondary: #ffffff;
+  --color-surface-container-high: #e8e8e8;
+  --color-surface: #f9f9f9;
+  --color-primary-fixed-dim: #c9c6c4;
+  --color-surface-container: #eeeeee;
+  --color-on-tertiary: #ffffff;
+  --color-on-tertiary-fixed-variant: #4b463b;
+  --color-tertiary: #000000;
+  --color-tertiary-container: #1e1b12;
+  --color-secondary-container: #f2e1c1;
+  --color-error-container: #ffdad6;
+  --color-tertiary-fixed-dim: #cdc6b6;
+  --color-error: #ba1a1a;
+  --color-on-secondary-fixed-variant: #51452e;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f3f3f3;
+  --color-on-tertiary-fixed: #1e1b12;
+  --color-on-secondary-container: #6f634a;
+  --color-surface-dim: #dadada;
+  --color-background: #f9f9f9;
+  --color-primary-fixed: #e5e2e0;
+  --color-outline-variant: #c7c7bf;
+  --color-tertiary-fixed: #e9e2d2;
+  --color-on-tertiary-container: #898376;
+}
+
+.noise-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  opacity: 0.025;
+  z-index: 99990;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 128px 128px;
+}
+
+.material-symbols-outlined {
+  font-variation-settings: "FILL" 0, "wght" 200, "GRAD" 0, "opsz" 24
+}
+
+.orb-glow {
+  background: radial-gradient(circle, rgba(37, 99, 235, 0.1) 0%, rgba(12, 12, 11, 0) 70%)
+}
+
+.instrument-italic {
+  font-family: "Instrument Serif", serif;
+  font-style: italic
+}
+
+.glass-orb {
+  background: radial-gradient(circle at 30% 30%, rgba(37, 99, 235, 0.2) 0%, rgba(12, 12, 11, 0) 70%);
+  box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.05)
+}:root {
+  /* Backgrounds */
+  --bg:           #F8FAFC;
+  --bg-secondary: #F1F5F9;
+  --bg-tertiary:  #E2E8F0;
+  --bg-dark:      #FFFFFF; /* Inverted for light card backgrounds */
+  --bg-card:      #FFFFFF;
+
+  /* Brand - Medical blue */
+  --brand:        #2563EB;
+  --brand-light:  #3B82F6;
+  --accent:       #10B981; /* Emerald for success/health */
+  --accent-light: #34D399;
+
+  /* Semantic */
+  --danger:       #DC2626;
+  --danger-light: #FEE2E2;
+  --danger-border:#FCA5A5;
+  --warning:      #D97706;
+  --warning-light:#FEF3C7;
+  --success:      #059669;
+  --success-light:#D1FAE5;
+
+  /* Text */
+  --text:         #0F172A;
+  --text-secondary:#475569;
+  --text-tertiary: #94A3B8;
+  --text-inverse:  #FFFFFF;
+
+  /* Borders */
+  --border:       #E2E8F0;
+  --border-strong:#CBD5E1;
+  --border-dark:  rgba(0,0,0,0.1);
+
+  /* Scrollbar */
+  --scrollbar-color: #CBD5E1;
+
+  /* Legacy compatibility */
+  --bg-section:   #F1F5F9;
+  --blue:         #2563EB;
+  --blue-light:   #3B82F6;
+  --blue-muted:   #DBEAFE;
+  --blue-glow:    rgba(37, 99, 235, 0.1);
+  --red:          #DC2626;
+  --red-light:    #FEE2E2;
+  --amber:        #D97706;
+  --green:        #059669;
+  --text-muted:   #64748B;
+  --white:        #FFFFFF;
+  
+  --med-blue:     #2563EB;
+  --cream:        #0F172A; /* Inverted name for PatientPortal legacy usage */
+
+  /* PatientDetail + dark page variables */
+  --bg-color:       #0C0C0B;
+  --surface-color:  rgba(255,255,255,0.04);
+  --primary-color:  #C8B89A;
+  --text-primary:   #FAFAF9;
+  --text-secondary: rgba(250,250,249,0.6);
+  --text-tertiary:  rgba(250,250,249,0.35);
+  --border-color:   rgba(255,255,255,0.07);
+  --success-color:  #22C55E;
+  --error-color:    #EF4444;
+  --warning-color:  #F59E0B;
+  --accent-color:   #C8B89A;
+  --surface-hover:  rgba(255,255,255,0.06);
+  --border-color-dark: rgba(255,255,255,0.12);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: 'Geist', sans-serif;
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+h1, h2, h3, h4 {
+  font-family: 'Geist', sans-serif;
+}
+
+.font-serif {
+  font-family: 'Instrument Serif', serif;
+}
+
+.font-mono {
+  font-family: 'Geist Mono', monospace;
+}
+
+/* Legacy class support */
+.font-bebas {
+  font-family: 'Instrument Serif', serif;
+}
+
+.font-jetbrains {
+  font-family: 'Geist Mono', monospace;
+}
+
+.font-outfit {
+  font-family: 'Geist', sans-serif;
+}
+
+/* Custom Cursor */
+.cursor-dot {
+  width: 5px;
+  height: 5px;
+  background: var(--text);
+  border-radius: 50%;
+  position: fixed;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 99999;
+  transition: transform 0.1s ease, width 0.2s ease, height 0.2s ease, opacity 0.2s ease;
+}
+
+.cursor-ring {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--text);
+  border-radius: 50%;
+  position: fixed;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 99998;
+  opacity: 0.5;
+}
+
+.cursor-dot.hover {
+  transform: scale(3);
+  opacity: 0.3;
+}
+
+.cursor-ring.hover {
+  transform: scale(1.5);
+  opacity: 0.2;
+}
+
+.cursor-dot.click {
+  transform: scale(0.5);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 3px;
+  height: 3px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-color, #1A1A1A);
+  border-radius: 2px;
+  opacity: 0.3;
+}
+::-webkit-scrollbar-thumb:hover {
+  opacity: 0.6;
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-color, #1A1A1A) transparent;
+}
+
+/* Animations */
+@keyframes fadeUp {
+  0% { transform: translateY(30px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes reverse-spin {
+  from { transform: rotate(360deg); }
+  to { transform: rotate(0deg); }
+}
+
+.animate-reverse-spin {
+  animation: reverse-spin 1s linear infinite;
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(1); opacity: 0.3; }
+  100% { transform: scale(2.5); opacity: 0; }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+@keyframes breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.04); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse-glow {
+  0% { box-shadow: 0 0 0 0 rgba(26,26,26,0.2); }
+  70% { box-shadow: 0 0 0 8px rgba(26,26,26,0); }
+  100% { box-shadow: 0 0 0 0 rgba(26,26,26,0); }
+}
+
+/* Scroll Reveal */
+.reveal {
+  opacity: 0;
+  transform: translateY(32px);
+  transition: opacity 0.7s ease, transform 0.7s ease;
+}
+
+.reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.animate-pulse-custom {
+  animation: pulse-dot 1.5s infinite;
+}
+
+.animate-breathe {
+  animation: breathe 3s infinite ease-in-out;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s infinite;
+}
+
+/* Symptom input placeholder */
+.symptom-input::placeholder {
+  color: #9CA3AF;
+  opacity: 1;
+}
+
+/* Photo Slots */
+.photo-slot {
+  background: #2563EB;
+  border-radius: 12px;
+  position: relative;
+  overflow: hidden;
+}
