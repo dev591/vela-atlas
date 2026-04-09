@@ -1,7 +1,7 @@
 import { API_URL } from "../utils/config";
 import { useEffect, useState, useRef } from 'react'
 import DoctorSidebar from '../components/DoctorSidebar'
-import toast, { Toaster } from 'react-hot-toast'
+import toast from 'react-hot-toast'
 import { FileText, Printer, Copy, Check, AlertTriangle, ArrowRight } from 'lucide-react'
 import gsap from 'gsap'
 
@@ -157,16 +157,6 @@ Dr. S. Chandra`
 
   return (
     <div className="min-h-screen bg-[var(--bg-color)] text-[var(--text-primary)] font-sans selection:bg-[var(--accent-color)] selection:text-slate-900">
-        <Toaster position="top-right" toastOptions={{
-            style: {
-                background: '#1a1a1a',
-                color: '#fff',
-                fontFamily: 'Geist Mono, monospace',
-                fontSize: '13px',
-                borderRadius: '0px',
-                border: '1px solid #333',
-            },
-        }} />
         
         <DoctorSidebar onExpandChange={setSidebarExpanded} />
         

@@ -8,6 +8,8 @@ import {
 } from 'lucide-react';
 import { io } from 'socket.io-client';
 import { API_URL, SOCKET_URL } from '../utils/config';
+import toast from 'react-hot-toast';
+import VelaOnboardingWizard from '../components/VelaOnboardingWizard';
 import { 
   ReactFlow, 
   Background, 
@@ -74,6 +76,21 @@ const WardNode = ({ data }: { data: any }) => {
           </div>
         </div>
 
+        {/* Staff in Ward */}
+        {data.staff && data.staff.length > 0 && (
+          <div className="flex items-center gap-1 mb-4">
+            <Users size={12} className="text-slate-400" />
+            <div className="flex -space-x-2 overflow-hidden">
+              {data.staff.map((s: any) => (
+                <div key={s.id} title={`${s.name} (${s.role})`} className="inline-block h-6 w-6 rounded-full ring-2 ring-white bg-blue-100 text-blue-700 flex items-center justify-center text-[10px] font-bold uppercase">
+                  {s.name.charAt(0)}
+                </div>
+              ))}
+            </div>
+            <span className="text-[10px] font-semibold text-slate-500 ml-1">Assigned</span>
+          </div>
+        )}
+
         {/* Occupancy Bar */}
         <div className="space-y-2 mb-4">
           <div className="flex justify-between text-[11px] font-medium text-slate-600">
@@ -119,8 +136,22 @@ const nodeTypes = {
 // --- COMPONENTS ---
 
 export default function HospitalManager() {
+  const [isAuthed, setIsAuthed] = useState(false);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
   const socket = useMemo(() => io(SOCKET_URL), []);
-  const [activeTab, setActiveTab] = useState<'overview' | 'map' | 'staff' | 'analytics' | 'config' | 'hospitals'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'map' | 'staff' | 'analytics' | 'config' | 'hospitals' | 'staff_mgmt' | 'command'>('overview');
+  const [hospitalId, setHospitalId] = useState(localStorage.getItem('vela_hospital_id') || '');
+  const [hospitalName, setHospitalName] = useState(localStorage.getItem('vela_hospital_name') || '');
+  const [wards, setWards] = useState<any[]>([]);
+  const [staffList, setStaffList] = useState<any>({ doctors: [], receptionists: [], lab_controllers: [] });
+  const [showAddStaff, setShowAddStaff] = useState(false);
+  const [addStaffForm, setAddStaffForm] = useState({ name: '', role: 'doctor', specialization: '', ward_id: '' });
+  const [addingStaff, setAddingStaff] = useState(false);
+  const [newStaffCreds, setNewStaffCreds] = useState<any>(null);
+  const [commandData, setCommandData] = useState<any>(null);
+  const [revealedPasswords, setRevealedPasswords] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [searchResult, setSearchResult] = useState<any[]>([]);
@@ -128,6 +159,7 @@ export default function HospitalManager() {
   const [overview, setOverview] = useState<any>(null);
   const [staff, setStaff] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showWizard, setShowWizard] = useState(false);
 
   // Network Hospitals state
   const [hospitalNameInput, setHospitalNameInput] = useState('');
@@ -140,6 +172,42 @@ export default function HospitalManager() {
   const [registering, setRegistering] = useState(false);
   const [registrationError, setRegistrationError] = useState<string | null>(null);
   const [credentials, setCredentials] = useState<{ email: string; password: string; hospital_name: string } | null>(null);
+  useEffect(() => {
+    if (localStorage.getItem('vela_manager_auth') === 'true') {
+      setIsAuthed(true);
+    }
+  }, []);
+
+  const handleManagerLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/manager/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: loginEmail, password: loginPassword })
+      });
+      const data = await res.json();
+      if (data.status === 'success') {
+        localStorage.setItem('vela_manager_auth', 'true');
+        localStorage.setItem('vela_hospital_id', data.hospital_id);
+        localStorage.setItem('vela_hospital_name', data.hospital_name);
+        setHospitalId(data.hospital_id);
+        setHospitalName(data.hospital_name);
+        setIsAuthed(true);
+        if (data.walkthrough_done === false) {
+          setShowWizard(true);
+        }
+        toast.success(`Welcome, ${data.manager_name}`);
+      } else {
+        toast.error(data.message);
+      }
+    } catch {
+      toast.error('Connection failed');
+    } finally {
+      setLoginLoading(false);
+    }
+  };
   const [networkHospitals, setNetworkHospitals] = useState<NetworkHospital[]>([]);
   const [networkLoading, setNetworkLoading] = useState(false);
   const [copiedField, setCopiedField] = useState<'email' | 'password' | null>(null);
@@ -151,9 +219,9 @@ export default function HospitalManager() {
   const fetchData = useCallback(async () => {
     try {
       const [ovRes, wardRes, staffRes] = await Promise.all([
-        fetch(`${API_URL}/api/hospital/overview`),
-        fetch(`${API_URL}/api/wards`),
-        fetch(`${API_URL}/api/staff/list`)
+        fetch(`${API_URL}/api/hospital/overview?hospital_id=${hospitalId}`),
+        fetch(`${API_URL}/api/wards?hospital_id=${hospitalId}`),
+        fetch(`${API_URL}/api/staff/list?hospital_id=${hospitalId}`)
       ]);
 
       const ov = await ovRes.json();
@@ -162,6 +230,7 @@ export default function HospitalManager() {
 
       if (ov?.data) setOverview(ov.data);
       if (wrd?.wards) {
+        setWards(wrd.wards);
         // Setup Nodes
         const flowNodes = wrd.wards.map((w: any, idx: number) => ({
           id: String(w.id),
@@ -281,6 +350,18 @@ export default function HospitalManager() {
         .catch(console.error)
         .finally(() => setNetworkLoading(false));
     }
+    if (activeTab === 'staff_mgmt' && hospitalId) {
+      fetch(`${API_URL}/api/manager/staff/${hospitalId}`)
+        .then(r => r.json())
+        .then(d => { if (d.status === 'success') setStaffList(d); })
+        .catch(console.error);
+    }
+    if (activeTab === 'command' && hospitalId) {
+      fetch(`${API_URL}/api/manager/command-center/${hospitalId}`)
+        .then(r => r.json())
+        .then(d => { if (d.status === 'success') setCommandData(d); })
+        .catch(console.error);
+    }
   }, [activeTab]);
 
   const onNodeDragStop = async (_event: any, node: any) => {
@@ -319,8 +400,48 @@ export default function HospitalManager() {
     </div>
   );
 
+  if (!isAuthed) {
+    return (
+      <div style={{ minHeight: '100vh', background: '#0C0C0B', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Geist, sans-serif' }}>
+        <div style={{ width: 400, padding: 48, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(200,184,154,0.15)', borderRadius: 24, textAlign: 'center' }}>
+          <div style={{ fontFamily: 'Geist Mono, monospace', fontSize: 9, color: '#C8B89A', letterSpacing: '0.3em', textTransform: 'uppercase', marginBottom: 24 }}>VELA HOSPITAL OS</div>
+          <div style={{ fontFamily: 'Instrument Serif, serif', fontSize: 64, color: '#C8B89A', lineHeight: 1, marginBottom: 12 }}>V</div>
+          <h1 style={{ fontFamily: 'Instrument Serif, serif', fontSize: 28, color: '#FAFAF9', marginBottom: 8 }}>Manager Portal</h1>
+          <p style={{ color: 'rgba(250,250,249,0.4)', fontSize: 13, marginBottom: 32 }}>Enter your hospital credentials to begin synchronization.</p>
+          <form onSubmit={handleManagerLogin} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ textAlign: 'left' }}>
+              <label style={{ fontFamily: 'Geist Mono, monospace', fontSize: 9, color: 'rgba(250,250,249,0.3)', textTransform: 'uppercase', letterSpacing: '0.1em', display: 'block', marginBottom: 6 }}>Manager ID / Email</label>
+              <input type="email" value={loginEmail} onChange={e => setLoginEmail(e.target.value)} placeholder="manager@hospital.vela.health" required
+                style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: '12px 16px', color: '#FAFAF9', fontFamily: 'Geist, sans-serif', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
+            </div>
+            <div style={{ textAlign: 'left' }}>
+              <label style={{ fontFamily: 'Geist Mono, monospace', fontSize: 9, color: 'rgba(250,250,249,0.3)', textTransform: 'uppercase', letterSpacing: '0.1em', display: 'block', marginBottom: 6 }}>Access Password</label>
+              <input type="password" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} placeholder="••••••••" required
+                style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: '12px 16px', color: '#FAFAF9', fontFamily: 'Geist, sans-serif', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
+            </div>
+            <button type="submit" disabled={loginLoading}
+              style={{ background: '#C8B89A', color: '#0C0C0B', border: 'none', borderRadius: 10, padding: '14px', fontFamily: 'Geist, sans-serif', fontWeight: 700, fontSize: 14, cursor: 'pointer', marginTop: 12, transition: 'all 0.2s', opacity: loginLoading ? 0.7 : 1 }}>
+              {loginLoading ? 'Synchronizing...' : 'Initialize Session'}
+            </button>
+          </form>
+          <div style={{ marginTop: 32, paddingTop: 24, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+            <p style={{ color: 'rgba(250,250,249,0.3)', fontSize: 11 }}>Secure biometric encrypted session. Unauthorized access is strictly logged by Atlas Engine.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-screen flex bg-[#F8FAFC] font-sans text-[#0F172A] selection:bg-blue-100 overflow-hidden">
+      {showWizard && (
+        <VelaOnboardingWizard 
+          initialData={{ id: hospitalId, name: hospitalName }}
+          onboarderName={hospitalName} // Manager name is usually retrieved but we'll use hospitalName for now or leave it to wizard to fetch
+          onClose={() => { setShowWizard(false); fetchData(); }}
+          isManagerSetup={true}
+        />
+      )}
       
       {/* ── LEFT SIDEBAR: COMMAND CENTER ── */}
       <div className="w-[320px] flex flex-col border-r border-slate-200 bg-white shadow-[1px_0_0_0_rgba(0,0,0,0.02)]">
@@ -439,6 +560,16 @@ export default function HospitalManager() {
             >
               <Plus size={16} />
               Hospitals
+            </button>
+            <button type="button" onClick={() => setActiveTab('staff_mgmt')}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 20px', borderRadius: 12, fontSize: 14, fontWeight: 600, background: activeTab === 'staff_mgmt' ? 'rgba(15,118,110,0.1)' : 'transparent', color: activeTab === 'staff_mgmt' ? '#0F766E' : '#64748b', border: activeTab === 'staff_mgmt' ? '1px solid rgba(15,118,110,0.25)' : '1px solid transparent', cursor: 'pointer', transition: 'all 0.2s' }}>
+              <Users size={16} />
+              Staff
+            </button>
+            <button type="button" onClick={() => setActiveTab('command')}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 20px', borderRadius: 12, fontSize: 14, fontWeight: 600, background: activeTab === 'command' ? 'rgba(99,102,241,0.1)' : 'transparent', color: activeTab === 'command' ? '#6366f1' : '#64748b', border: activeTab === 'command' ? '1px solid rgba(99,102,241,0.25)' : '1px solid transparent', cursor: 'pointer', transition: 'all 0.2s' }}>
+              <Activity size={16} />
+              Command
             </button>
           </nav>
 
@@ -905,6 +1036,236 @@ export default function HospitalManager() {
                     ))}
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* ── STAFF MANAGEMENT TAB ── */}
+          {activeTab === 'staff_mgmt' && (
+            <div style={{ maxWidth: 900, margin: '0 auto' }}>
+              {/* Add Staff Modal */}
+              {showAddStaff && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
+                  <div style={{ background: 'white', borderRadius: 20, padding: 40, width: 440, boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+                    <h3 style={{ fontFamily: 'Instrument Serif, serif', fontSize: 24, color: '#0F172A', marginBottom: 24 }}>Add Staff Member</h3>
+                    {newStaffCreds ? (
+                      <div>
+                        <div style={{ background: '#F0FDF4', border: '1px solid #86EFAC', borderRadius: 12, padding: 20, marginBottom: 20 }}>
+                          <div style={{ fontFamily: 'Geist Mono, monospace', fontSize: 10, color: '#166534', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12 }}>Staff Login Created</div>
+                          <div style={{ fontFamily: 'Geist, sans-serif', fontWeight: 600, fontSize: 15, marginBottom: 4 }}>{newStaffCreds.name} — {newStaffCreds.role}</div>
+                          <div style={{ fontFamily: 'Geist Mono, monospace', fontSize: 12, color: '#374151', marginBottom: 2 }}>{newStaffCreds.email}</div>
+                          <div style={{ fontFamily: 'Geist Mono, monospace', fontSize: 12, color: '#374151' }}>{newStaffCreds.password}</div>
+                        </div>
+                        <button type="button" onClick={() => { setShowAddStaff(false); setNewStaffCreds(null); setAddStaffForm({ name: '', role: 'doctor', specialization: '' }); if (hospitalId) fetch(`${API_URL}/api/manager/staff/${hospitalId}`).then(r => r.json()).then(d => { if (d.status === 'success') setStaffList(d); }); }}
+                          style={{ width: '100%', background: '#0F766E', color: 'white', border: 'none', borderRadius: 10, padding: '12px', fontFamily: 'Geist, sans-serif', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>Done</button>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                        <div>
+                          <label style={{ fontFamily: 'Geist Mono, monospace', fontSize: 10, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em', display: 'block', marginBottom: 6 }}>Role</label>
+                          <select value={addStaffForm.role} onChange={e => setAddStaffForm(f => ({ ...f, role: e.target.value }))}
+                            style={{ width: '100%', border: '1px solid #E2E8F0', borderRadius: 8, padding: '10px 14px', fontFamily: 'Geist, sans-serif', fontSize: 14, color: '#0F172A', outline: 'none', background: 'white' }}>
+                            <option value="doctor">Doctor</option>
+                            <option value="receptionist">Receptionist</option>
+                            <option value="lab_controller">Lab Controller</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label style={{ fontFamily: 'Geist Mono, monospace', fontSize: 10, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em', display: 'block', marginBottom: 6 }}>Full Name</label>
+                          <input value={addStaffForm.name} onChange={e => setAddStaffForm(f => ({ ...f, name: e.target.value }))} placeholder="Dr. Priya Sharma"
+                            style={{ width: '100%', border: '1px solid #E2E8F0', borderRadius: 8, padding: '10px 14px', fontFamily: 'Geist, sans-serif', fontSize: 14, color: '#0F172A', outline: 'none', boxSizing: 'border-box' }} />
+                        </div>
+                        {addStaffForm.role === 'doctor' && (
+                          <div>
+                            <label style={{ fontFamily: 'Geist Mono, monospace', fontSize: 10, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em', display: 'block', marginBottom: 6 }}>Specialization</label>
+                            <input value={addStaffForm.specialization} onChange={e => setAddStaffForm(f => ({ ...f, specialization: e.target.value }))} placeholder="Cardiology"
+                              style={{ width: '100%', border: '1px solid #E2E8F0', borderRadius: 8, padding: '10px 14px', fontFamily: 'Geist, sans-serif', fontSize: 14, color: '#0F172A', outline: 'none', boxSizing: 'border-box' }} />
+                          </div>
+                        )}
+
+                        <div>
+                          <label style={{ fontFamily: 'Geist Mono, monospace', fontSize: 10, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em', display: 'block', marginBottom: 6 }}>Assign Ward area</label>
+                          <select 
+                            value={addStaffForm.ward_id} 
+                            onChange={e => setAddStaffForm(f => ({ ...f, ward_id: e.target.value }))}
+                            style={{ width: '100%', border: '1px solid #E2E8F0', borderRadius: 8, padding: '10px 14px', fontFamily: 'Geist, sans-serif', fontSize: 14, color: '#0F172A', outline: 'none', background: 'white' }}
+                          >
+                            <option value="">Floating / Unassigned</option>
+                            {wards.map(w => (
+                              <option key={w.id} value={w.id}>{w.name} ({w.type})</option>
+                            ))}
+                          </select>
+                          {addStaffForm.role === 'lab_controller' && !wards.some(w => w.type?.toLowerCase().includes('lab')) && (
+                            <p style={{ marginTop: 6, fontSize: 11, color: '#EF4444', fontFamily: 'Geist, sans-serif' }}>⚠️ No Lab area detected. Add a Lab Ward first to hire controllers.</p>
+                          )}
+                        </div>
+
+                        <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+                          <button type="button" onClick={() => setShowAddStaff(false)}
+                            style={{ flex: 1, background: '#F1F5F9', border: 'none', borderRadius: 10, padding: '12px', fontFamily: 'Geist, sans-serif', fontSize: 14, cursor: 'pointer', color: '#374151' }}>Cancel</button>
+                          <button 
+                            type="button" 
+                            disabled={addingStaff || !addStaffForm.name.trim() || (addStaffForm.role === 'lab_controller' && !wards.some(w => w.type?.toLowerCase().includes('lab')))} 
+                            onClick={async () => {
+                            setAddingStaff(true);
+                            try {
+                              const payload = {
+                                ...addStaffForm,
+                                hospital_id: hospitalId,
+                                ward_id: addStaffForm.ward_id || null
+                              };
+                              const res = await fetch(`${API_URL}/api/manager/add-staff`, { 
+                                method: 'POST', 
+                                headers: { 'Content-Type': 'application/json' }, 
+                                body: JSON.stringify(payload) 
+                              });
+                              const data = await res.json();
+                              if (data.status === 'success') {
+                                setNewStaffCreds(data);
+                                toast.success('Staff member added successfully');
+                                // Refresh list
+                                if (hospitalId) {
+                                  fetch(`${API_URL}/api/manager/staff/${hospitalId}`).then(r => r.json()).then(d => { if (d.status === 'success') setStaffList(d); });
+                                }
+                              } else {
+                                toast.error(data.message || 'Failed to add staff');
+                              }
+                            } catch (err) {
+                              toast.error('Connection failed');
+                            } finally { setAddingStaff(false); }
+                          }}
+                            style={{ flex: 1, background: addingStaff || !addStaffForm.name.trim() ? '#94a3b8' : '#0F766E', color: 'white', border: 'none', borderRadius: 10, padding: '12px', fontFamily: 'Geist, sans-serif', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>
+                            {addingStaff ? 'Adding...' : 'Add to Team'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
+                <h2 style={{ fontFamily: 'Instrument Serif, serif', fontSize: 32, color: '#0F172A' }}>Your Team</h2>
+                <button type="button" onClick={() => setShowAddStaff(true)}
+                  style={{ background: '#C8B89A', color: '#0C0C0B', border: 'none', borderRadius: 10, padding: '10px 24px', fontFamily: 'Geist, sans-serif', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
+                  + Add Staff Member
+                </button>
+              </div>
+
+              {(['doctors', 'receptionists', 'lab_controllers'] as const).map(group => {
+                const members = staffList[group] || [];
+                const label = group === 'doctors' ? 'Doctors' : group === 'receptionists' ? 'Receptionists' : 'Lab Controllers';
+                return (
+                  <div key={group} style={{ marginBottom: 32 }}>
+                    <h3 style={{ fontFamily: 'Geist Mono, monospace', fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 12 }}>{label} ({members.length})</h3>
+                    {members.length === 0 ? (
+                      <div style={{ padding: '20px', border: '1px dashed #E2E8F0', borderRadius: 12, textAlign: 'center', color: '#94a3b8', fontFamily: 'Geist, sans-serif', fontSize: 13 }}>No {label.toLowerCase()} added yet.</div>
+                    ) : (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 12 }}>
+                        {members.map((s: any) => (
+                          <div key={s.id} style={{ background: 'white', border: '1px solid #E2E8F0', borderRadius: 14, padding: 20 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                              <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#0F766E', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Instrument Serif, serif', fontSize: 18, fontWeight: 700 }}>
+                                {s.name.charAt(0)}
+                              </div>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontFamily: 'Geist, sans-serif', fontWeight: 600, fontSize: 15, color: '#0F172A' }}>{s.name}</div>
+                                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                  {s.specialization && <div style={{ fontFamily: 'Geist, sans-serif', fontSize: 12, color: '#C8B89A' }}>{s.specialization}</div>}
+                                  <div style={{ fontFamily: 'Geist Mono, monospace', fontSize: 9, color: '#64748b', background: '#F1F5F9', padding: '1px 6px', borderRadius: 4 }}>{s.ward_name || 'Floating'}</div>
+                                </div>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <div style={{ width: 8, height: 8, borderRadius: '50%', background: s.online ? '#22C55E' : '#94a3b8' }} />
+                                <span style={{ fontFamily: 'Geist Mono, monospace', fontSize: 10, color: s.online ? '#22C55E' : '#94a3b8' }}>{s.online ? 'Online' : 'Offline'}</span>
+                              </div>
+                            </div>
+                            <div style={{ background: '#F8FAFC', borderRadius: 8, padding: '10px 12px', marginBottom: 10 }}>
+                              <div style={{ fontFamily: 'Geist Mono, monospace', fontSize: 11, color: '#374151', marginBottom: 2 }}>{s.email}</div>
+                              <div style={{ fontFamily: 'Geist Mono, monospace', fontSize: 11, color: '#374151', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <span>{revealedPasswords.has(s.id) ? s.password : '••••••••'}</span>
+                                <button type="button" onClick={() => setRevealedPasswords(prev => { const n = new Set(prev); n.has(s.id) ? n.delete(s.id) : n.add(s.id); return n; })}
+                                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'Geist Mono, monospace', fontSize: 9, color: '#64748b', textTransform: 'uppercase' }}>
+                                  {revealedPasswords.has(s.id) ? 'Hide' : 'Reveal'}
+                                </button>
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              <button type="button" onClick={() => { navigator.clipboard.writeText(s.email); }}
+                                style={{ flex: 1, background: '#F1F5F9', border: 'none', borderRadius: 6, padding: '6px', fontFamily: 'Geist Mono, monospace', fontSize: 9, color: '#374151', cursor: 'pointer', textTransform: 'uppercase' }}>Copy Email</button>
+                              <button type="button" onClick={() => { navigator.clipboard.writeText(s.password); }}
+                                style={{ flex: 1, background: '#F1F5F9', border: 'none', borderRadius: 6, padding: '6px', fontFamily: 'Geist Mono, monospace', fontSize: 9, color: '#374151', cursor: 'pointer', textTransform: 'uppercase' }}>Copy Pass</button>
+                              <button type="button" onClick={async () => { if (confirm(`Remove ${s.name}?`)) { await fetch(`${API_URL}/api/manager/staff/${s.id}`, { method: 'DELETE' }); if (hospitalId) fetch(`${API_URL}/api/manager/staff/${hospitalId}`).then(r => r.json()).then(d => { if (d.status === 'success') setStaffList(d); }); } }}
+                                style={{ background: '#FEF2F2', border: 'none', borderRadius: 6, padding: '6px 10px', fontFamily: 'Geist Mono, monospace', fontSize: 9, color: '#EF4444', cursor: 'pointer', textTransform: 'uppercase' }}>Remove</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* ── COMMAND CENTER TAB ── */}
+          {activeTab === 'command' && (
+            <div style={{ maxWidth: 900, margin: '0 auto' }}>
+              <h2 style={{ fontFamily: 'Instrument Serif, serif', fontSize: 32, color: '#0F172A', marginBottom: 24 }}>Command Center</h2>
+
+              {/* Staff Online */}
+              <div style={{ background: 'white', border: '1px solid #E2E8F0', borderRadius: 16, padding: 24, marginBottom: 20 }}>
+                <h3 style={{ fontFamily: 'Geist Mono, monospace', fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 16 }}>Staff Online Now</h3>
+                {!commandData || commandData.staff_online.length === 0 ? (
+                  <p style={{ fontFamily: 'Geist, sans-serif', fontSize: 13, color: '#94a3b8' }}>No staff currently online.</p>
+                ) : (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                    {commandData.staff_online.map((s: any) => (
+                      <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#F0FDF4', border: '1px solid #86EFAC', borderRadius: 100, padding: '6px 14px' }}>
+                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#22C55E' }} />
+                        <span style={{ fontFamily: 'Geist, sans-serif', fontSize: 13, color: '#166534', fontWeight: 500 }}>{s.name}</span>
+                        <span style={{ fontFamily: 'Geist Mono, monospace', fontSize: 10, color: '#4ADE80' }}>{s.role}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Patient Flow */}
+              <div style={{ background: 'white', border: '1px solid #E2E8F0', borderRadius: 16, padding: 24, marginBottom: 20 }}>
+                <h3 style={{ fontFamily: 'Geist Mono, monospace', fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 16 }}>Patient Flow</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
+                  {[
+                    { label: 'Waiting', value: commandData?.patients_waiting ?? 0, color: '#3B82F6' },
+                    { label: 'Consulting', value: commandData?.patients_in_consultation ?? 0, color: '#8B5CF6' },
+                    { label: 'In Lab', value: commandData?.patients_in_lab ?? 0, color: '#F59E0B' },
+                    { label: 'In Ward', value: commandData?.patients_in_ward ?? 0, color: '#0F766E' },
+                    { label: 'Discharged', value: commandData?.discharged_today ?? 0, color: '#22C55E' },
+                  ].map(({ label, value, color }) => (
+                    <div key={label} style={{ textAlign: 'center', padding: 16, background: '#F8FAFC', borderRadius: 12 }}>
+                      <div style={{ fontFamily: 'Instrument Serif, serif', fontSize: 36, color, lineHeight: 1, marginBottom: 4 }}>{value}</div>
+                      <div style={{ fontFamily: 'Geist Mono, monospace', fontSize: 10, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Atlas Stats */}
+              <div style={{ background: 'white', border: '1px solid #E2E8F0', borderRadius: 16, padding: 24 }}>
+                <h3 style={{ fontFamily: 'Geist Mono, monospace', fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 16 }}>Atlas AI Today</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+                  {[
+                    { label: 'Total Queries', value: commandData?.atlas_queries_today ?? 0, color: '#C8B89A' },
+                    { label: 'Critical Alerts', value: commandData?.critical_alerts_today ?? 0, color: '#EF4444' },
+                    { label: 'Avg Response', value: '2.3s', color: '#22C55E' },
+                    { label: 'Reports Analyzed', value: 0, color: '#3B82F6' },
+                  ].map(({ label, value, color }) => (
+                    <div key={label} style={{ textAlign: 'center', padding: 16, background: '#F8FAFC', borderRadius: 12 }}>
+                      <div style={{ fontFamily: 'Instrument Serif, serif', fontSize: 32, color, lineHeight: 1, marginBottom: 4 }}>{value}</div>
+                      <div style={{ fontFamily: 'Geist Mono, monospace', fontSize: 10, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{label}</div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           )}

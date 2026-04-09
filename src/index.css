@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import 'mapbox-gl/dist/mapbox-gl.css';
 
 @theme {
   --color-surface-container-highest: #e2e2e2;

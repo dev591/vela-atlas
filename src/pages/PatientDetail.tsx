@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import DoctorSidebar from '../components/DoctorSidebar'
 import { getUser } from '../utils/auth'
-import toast, { Toaster } from 'react-hot-toast'
+import toast from 'react-hot-toast'
 import Atlas from '../components/Atlas/Atlas'
 
 type Patient = {
@@ -218,7 +218,6 @@ export default function PatientDetail() {
         padding: '48px',
         position: 'relative'
       }}>
-        <Toaster position="top-right" />
 
         {/* Back Navigation */}
         <button 

@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { gsap } from 'gsap'
 import DoctorSidebar from '../components/DoctorSidebar'
 import { getUser } from '../utils/auth'
-import toast, { Toaster } from 'react-hot-toast'
+import toast from 'react-hot-toast'
 import { socket } from '../hooks/useSocket'
 import Atlas from '../components/Atlas/Atlas'
 
@@ -253,9 +253,6 @@ export default function Doctor() {
       <main ref={containerRef} className="flex-1 transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] relative z-10 px-12 py-16"
         style={{ marginLeft: sidebarExpanded ? '280px' : '80px' }}>
         
-        <Toaster position="top-right" toastOptions={{
-          style: { background: '#FAFAF9', color: '#0C0C0B', fontFamily: 'Geist Mono', fontSize: '12px', borderRadius: '4px' }
-        }}/>
         
         {/* Header Section */}
         <header className="flex justify-between items-end mb-16 border-b border-slate-200 pb-8">

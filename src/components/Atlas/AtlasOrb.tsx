@@ -92,7 +92,7 @@ export default function AtlasOrb({ state, onStop }: AtlasOrbProps) {
 
       <div style={{ position: 'relative', width: 64, height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <motion.div
-            animate={config.scaleAnim as any} // Cast to any to avoid complex framer-motion type issues
+            animate={config.scaleAnim as any}
             style={{
                 width: 48, height: 48, borderRadius: '50%',
                 background: config.bg,
@@ -123,6 +123,26 @@ export default function AtlasOrb({ state, onStop }: AtlasOrbProps) {
             )}
         </motion.div>
       </div>
+
+      {/* FIX 6 — Processing dots below orb */}
+      {state === 'processing' && (
+        <div style={{
+          display: 'flex', gap: 6, alignItems: 'center',
+          marginTop: 8
+        }}>
+          {[0, 1, 2].map((i) => (
+            <motion.div
+              key={i}
+              animate={{ scale: [0.6, 1, 0.6], opacity: [0.4, 1, 0.4] }}
+              transition={{ duration: 1, ease: 'easeInOut', repeat: Infinity, delay: i * 0.2 }}
+              style={{
+                width: 6, height: 6, borderRadius: '50%',
+                background: '#C8B89A'
+              }}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

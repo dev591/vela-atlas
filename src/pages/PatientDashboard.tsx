@@ -1,11 +1,11 @@
 import { API_URL } from "../utils/config";
-import { Activity, Calendar, Download, FileText, Pill, User, X, MapPin, Mic, CalendarPlus, ChevronRight, Clock, CheckCircle, AlertCircle } from "lucide-react";
+import { Activity, Calendar, Download, FileText, Pill, User, X, MapPin, Mic, CalendarPlus, ChevronRight, Clock, CheckCircle, AlertCircle, CheckCircle2 } from "lucide-react";
 import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import toast from "react-hot-toast";
 import { QRCodeSVG } from 'qrcode.react';
-// @googlemaps/js-api-loader used via dynamic import inside loadMap
+import mapboxgl from 'mapbox-gl';
 import useSocket from "../hooks/useSocket";
 
 const PatientDashboard = () => {
@@ -27,15 +27,10 @@ const PatientDashboard = () => {
   const [isTriageLoading, setIsTriageLoading] = useState(false);
   const [triageResult, setTriageResult] = useState<any>(null);
   const [hospitals, setHospitals] = useState<any[]>([]);
-  const [mapObj, setMapObj] = useState<any>(null);
-  const [mapLibrary, _setMapLibrary] = useState<any>(null);
-  const mapRef = useRef<HTMLDivElement>(null);       // DOM container for map
-  const googleRef = useRef<any>(null);               // google namespace ref
-  const mapInstanceRef = useRef<any>(null);          // map instance ref
-  const userLocationRef = useRef<{lat: number, lng: number} | null>(null); // stable location ref
-  
-  // Initialize Google Maps options — replaced by loadMap below
-  // (setOptions kept for type compat but not used for Places)
+  const [isSearchingHospitals, setIsSearchingHospitals] = useState(false);
+  const mapRef = useRef<HTMLDivElement>(null);          // DOM container for map
+  const mapInstanceRef = useRef<mapboxgl.Map | null>(null);  // Mapbox map instance
+  const userLocationRef = useRef<{lat: number, lng: number} | null>(null);
 
   // Booking Modal
   const [bookingHospital, setBookingHospital] = useState<any>(null);
@@ -44,6 +39,15 @@ const PatientDashboard = () => {
   const [bookingTime, setBookingTime] = useState("");
   const [networkHospitals, setNetworkHospitals] = useState<any[]>([]);
   const [bookingNetworkHospitalId, setBookingNetworkHospitalId] = useState<string | null>(null);
+  const [searchMode, setSearchMode] = useState<"triage" | "direct">("triage");
+  const [hospitalSearchQuery, setHospitalSearchQuery] = useState("");
+
+  // Diagnostic Engine State
+  const [allSymptoms, setAllSymptoms] = useState<string[]>([]);
+  const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>([]);
+  const [isDiagnosticLoading, setIsDiagnosticLoading] = useState(false);
+  const [diagnosticResults, setDiagnosticResults] = useState<any[]>([]);
+  const [diagnosticTab, setDiagnosticTab] = useState<"select" | "results">("select");
 
   // Atlas State
   const [atlasListening, setAtlasListening] = useState(false);
@@ -87,6 +91,7 @@ const PatientDashboard = () => {
 
         // Fetch Active Admission
         fetchActiveAdmission(p.id);
+        fetchSymptomsList();
 
         // Check for arrived appointment/live queue
         const arrivedApt = (aptRes.data.appointments || []).find((a: any) => a.status === 'arrived');
@@ -163,70 +168,61 @@ const PatientDashboard = () => {
       .then(r => { if (r.data.status === 'success') setNetworkHospitals(r.data.hospitals); })
       .catch(console.error);
 
-    // Load Google Maps + init map + get location — using setOptions/importLibrary API
-    const loadMap = async () => {
-      try {
-        const key = import.meta.env.VITE_GOOGLE_MAPS_KEY || "";
-        if (!key) { console.error("[Maps] VITE_GOOGLE_MAPS_KEY missing"); return; }
-        console.log("[Maps] Key exists:", !!key, key.slice(0, 8));
+    // Load Mapbox map
+    const loadMap = () => {
+      const token = import.meta.env.VITE_MAPBOX_TOKEN || "";
+      if (!token) { console.error("[Maps] VITE_MAPBOX_TOKEN missing"); return; }
+      mapboxgl.accessToken = token;
+      // Disable telemetry to prevent ERR_BLOCKED_BY_CLIENT from ad blockers
+      (mapboxgl as any).workerCount = 2;
+      try { (mapboxgl as any).setRTLTextPlugin('', () => {}); } catch {}
 
-        // Use the functional API (Loader class removed in newer versions)
-        const { setOptions: gmSetOptions, importLibrary } = await import("@googlemaps/js-api-loader");
-        gmSetOptions({ apiKey: key, version: "weekly", libraries: ["places", "geometry"] });
-
-        // Load all required libraries — places MUST be loaded before PlacesService
-        const { Map } = await importLibrary("maps") as any;
-        await importLibrary("places") as any;   // loads PlacesService
-        const { Marker } = await importLibrary("marker") as any;
-
-        // google namespace is now available on window
-        const google = (window as any).google;
-        if (!google) { console.error("[Maps] window.google not available after load"); return; }
-        googleRef.current = google;
-        console.log("[Maps] Google loaded, places available:", !!google.maps.places);
-
-        // Get user location
-        const getLoc = (): Promise<{lat: number, lng: number}> =>
-          new Promise(resolve => {
-            navigator.geolocation.getCurrentPosition(
-              pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-              () => resolve({ lat: 17.3850, lng: 78.4867 })
-            );
-          });
-
-        const loc = await getLoc();
+      const initWithLocation = (loc: {lat: number, lng: number}) => {
         setLocation(loc);
         userLocationRef.current = loc;
         console.log("[Maps] Location:", loc);
 
-        // Init map — wait for DOM ref
         if (!mapRef.current) { console.error("[Maps] mapRef not ready"); return; }
 
-        const map = new Map(mapRef.current, {
-          center: loc,
-          zoom: 14,
-          mapTypeControl: false,
-          streetViewControl: false,
-          styles: [
-            { elementType: "geometry", stylers: [{ color: "#242f3e" }] },
-            { elementType: "labels.text.stroke", stylers: [{ color: "#242f3e" }] },
-            { elementType: "labels.text.fill", stylers: [{ color: "#746855" }] },
-            { featureType: "road", elementType: "geometry", stylers: [{ color: "#38414e" }] },
-            { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#746855" }] },
-            { featureType: "water", elementType: "geometry", stylers: [{ color: "#17263c" }] },
-          ]
+        // Destroy existing map if re-entering tab
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.remove();
+          mapInstanceRef.current = null;
+        }
+
+        const map = new mapboxgl.Map({
+          container: mapRef.current,
+          style: "mapbox://styles/mapbox/dark-v11",
+          center: [loc.lng, loc.lat],
+          zoom: 13,
         });
         mapInstanceRef.current = map;
-        setMapObj(map);
 
-        new Marker({ position: loc, map, title: "You are here" });
-        console.log("[Maps] Map ready");
-      } catch (err) {
-        console.error("[Maps] Error:", err);
-      }
+        // User location marker
+        new mapboxgl.Marker({ color: "#0F766E" })
+          .setLngLat([loc.lng, loc.lat])
+          .setPopup(new mapboxgl.Popup().setHTML("<p style='font-family:Geist,sans-serif;font-size:12px;color:#134E4A;margin:0'>📍 You are here</p>"))
+          .addTo(map);
+
+        console.log("[Maps] Mapbox ready");
+      };
+
+      navigator.geolocation.getCurrentPosition(
+        pos => initWithLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => initWithLocation({ lat: 17.3850, lng: 78.4867 })
+      );
     };
 
     loadMap();
+
+    // Auto-search if coming from Diagnostic result
+    if (searchMode === "direct" && hospitalSearchQuery) {
+        searchHospitals(hospitalSearchQuery);
+    }
+
+    return () => {
+      // Don't destroy on tab switch — keep map alive
+    };
   }, [activeTab]);
 
   useEffect(() => {
@@ -315,48 +311,152 @@ const PatientDashboard = () => {
     }
   };
 
-  const searchHospitals = (keyword: string) => {
-    // Fallback to window.google if ref not set (e.g. map loaded on previous visit)
-    const g = googleRef.current || (window as any).google;
-    const mapInst = mapInstanceRef.current;
+  const searchHospitals = async (keyword: string) => {
     const loc = userLocationRef.current;
-    console.log("[FindCare] searchHospitals", keyword, !!g, !!mapInst, loc);
-    if (!g || !mapInst || !loc) {
-      console.error("[FindCare] Not ready to search — map or location missing");
-      return;
-    }
+    console.log("[FindCare] searchHospitals", keyword, !!mapInstanceRef.current, loc);
+    if (!loc) { console.error("[FindCare] Location not ready"); return; }
+
+    setIsSearchingHospitals(true);
     setHospitals([]);
-    const service = new g.maps.places.PlacesService(mapInst);
-    service.nearbySearch({
-      location: loc,
-      radius: 5000,
-      keyword: keyword,
-      type: "hospital"
-    }, (results: any[], status: any) => {
-      console.log("[FindCare] Results:", status, results?.length);
-      if (status === g.maps.places.PlacesServiceStatus.OK && results) {
-        results.forEach((place, i) => {
-          new g.maps.Marker({
-            position: place.geometry?.location,
-            map: mapInst,
-            title: place.name,
-            label: { text: String(i + 1), color: "white", fontWeight: "bold", fontSize: "12px" },
-            icon: {
-              path: g.maps.SymbolPath.CIRCLE,
-              scale: 16, fillColor: "#0F766E", fillOpacity: 1,
-              strokeColor: "white", strokeWeight: 2
-            }
-          });
-        });
-        if (results.length > 0) {
-          mapInst.panTo(results[0].geometry?.location);
-          mapInst.setZoom(13);
-        }
-        setHospitals(results.slice(0, 6));
-      } else {
-        console.error("[FindCare] Search failed:", status);
+
+    // 1. Prepare OSM Search if needed
+    const radius = 5000;
+    let osmQuery = "";
+    if (keyword && searchMode === "direct") {
+      osmQuery = `[out:json][timeout:25];(node["amenity"~"hospital|clinic"]["name"~"${keyword}",i];node["healthcare"="hospital"]["name"~"${keyword}",i];way["amenity"~"hospital|clinic"]["name"~"${keyword}",i];);out center;`;
+    } else {
+      osmQuery = `[out:json][timeout:25];(node["amenity"="hospital"](around:${radius},${loc.lat},${loc.lng});node["amenity"="clinic"](around:${radius},${loc.lat},${loc.lng});node["healthcare"="doctor"](around:${radius},${loc.lat},${loc.lng});way["amenity"="hospital"](around:${radius},${loc.lat},${loc.lng}););out center;`;
+    }
+
+    const OVERPASS_MIRRORS = [
+      "https://overpass-api.de/api/interpreter",
+      "https://overpass.kumi.systems/api/interpreter"
+    ];
+
+    let osmData: any = null;
+    let velaPartnerData: any[] = [];
+
+    // Parallel fetch: internal Vela partners + OSM
+    try {
+      const partnerRes = await axios.get(`${API_URL}/api/hospitals/search?query=${keyword || ""}`);
+      if (partnerRes.data.status === 'success') {
+        velaPartnerData = partnerRes.data.hospitals;
       }
-    });
+    } catch (e) {
+      console.warn("[FindCare] Partner search failed", e);
+    }
+
+    for (const mirror of OVERPASS_MIRRORS) {
+      try {
+        const res = await fetch(mirror, {
+          method: "POST",
+          body: osmQuery,
+          signal: AbortSignal.timeout(10000)
+        });
+        if (!res.ok) continue;
+        const text = await res.text();
+        if (text.trim().startsWith('<')) continue;
+        osmData = JSON.parse(text);
+        break;
+      } catch (err: any) {
+        console.warn("[FindCare] OSM mirror failed:", mirror);
+      }
+    }
+
+    try {
+      const elements = osmData?.elements || [];
+
+      // Combine OSM results with Global Vela partners
+      const osmHospitals = elements
+        .filter((el: any) => el.tags?.name)
+        .map((el: any) => {
+          const elLat = el.lat ?? el.center?.lat;
+          const elLng = el.lon ?? el.center?.lon;
+          const distance = elLat && elLng ? calculateDistance(loc.lat, loc.lng, elLat, elLng) : 999;
+          return {
+            id: String(el.id),
+            name: el.tags.name,
+            vicinity: el.tags["addr:full"] || el.tags["addr:street"] || el.tags["addr:city"] || "Nearby",
+            lat: elLat,
+            lng: elLng,
+            distance,
+            type: el.tags.amenity || el.tags.healthcare || "hospital",
+            is_vela: false,
+            place_id: `osm_${el.id}`
+          };
+        });
+
+      const processedPartners = velaPartnerData.map(vh => ({
+        ...vh,
+        distance: calculateDistance(loc.lat, loc.lng, vh.latitude, vh.longitude),
+        lat: vh.latitude,
+        lng: vh.longitude,
+        vicinity: vh.address,
+        is_vela: true
+      }));
+
+      const combined = [...processedPartners, ...osmHospitals]
+        .filter((h: any) => h.lat && h.lng)
+        .sort((a: any, b: any) => {
+          if (a.is_vela && !b.is_vela) return -1;
+          if (!a.is_vela && b.is_vela) return 1;
+          return a.distance - b.distance;
+        })
+        .slice(0, 15);
+
+      // Add markers
+      if (mapInstanceRef.current) {
+        // Clear existing markers if we had a way to track them, but Mapbox markers are often managed manually.
+        // For simplicity, we just add new ones.
+        combined.forEach((h: any, i: number) => {
+          const el = document.createElement('div');
+          if (h.is_vela) {
+            el.style.cssText = `width:46px;height:46px;background:#C8B89A;border:4px solid #0C0C0B;border-radius:14px;display:flex;align-items:center;justify-content:center;color:#0C0C0B;font-size:20px;font-weight:900;cursor:pointer;box-shadow:0 0 30px rgba(200,184,154,0.9);z-index:20;transform: rotate(45deg);`;
+            const inner = document.createElement('div');
+            inner.style.cssText = `transform: rotate(-45deg);`;
+            inner.innerHTML = 'V';
+            el.appendChild(inner);
+          } else {
+            el.style.cssText = `width:26px;height:26px;background:#0F766E;border:2px solid white;border-radius:50%;display:flex;align-items:center;justify-content:center;color:white;font-size:10px;font-weight:bold;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.4);opacity:0.8;`;
+            el.innerHTML = String(i + 1);
+          }
+
+          new mapboxgl.Marker({ element: el })
+            .setLngLat([h.lng, h.lat])
+            .setPopup(
+              new mapboxgl.Popup({ offset: 25 }).setHTML(
+                `<div style="font-family:Geist,sans-serif;padding:12px;background:#0C0C0B;color:white;border-radius:12px;border:1px solid ${h.is_vela ? '#C8B89A' : 'transparent'}">
+                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                    <strong style="color:white;font-size:14px">${h.name}</strong>
+                    ${h.is_vela ? '<span style="background:#C8B89A;color:#0C0C0B;font-size:7px;font-weight:900;padding:2px 6px;border-radius:100px;text-transform:uppercase;letter-spacing:0.1em">VELA PARTNER</span>' : ''}
+                  </div>
+                  <div style="color:rgba(255,255,255,0.6);font-size:11px;margin-bottom:8px">${h.vicinity}</div>
+                  <div style="display:flex;align-items:center;gap:4px">
+                    <div style="width:6px;height:6px;border-radius:50%;background:#22C55E"></div>
+                    <span style="color:#22C55E;font-size:10px;font-weight:700;font-mono;text-transform:uppercase">${h.distance < 1 ? Math.round(h.distance * 1000) + 'm' : h.distance.toFixed(1) + 'km'}</span>
+                  </div>
+                </div>`
+              )
+            )
+            .addTo(mapInstanceRef.current!);
+        });
+
+        if (combined.length > 0) {
+            mapInstanceRef.current.flyTo({
+              center: [combined[0].lng, combined[0].lat],
+              zoom: 12,
+              duration: 2000
+            });
+        }
+      }
+
+      setHospitals(combined);
+    } catch (err) {
+      console.error("[FindCare] Search error:", err);
+      toast.error("Search failed. Please try again.");
+    } finally {
+      setIsSearchingHospitals(false);
+    }
   };
 
   const triggerTriage = async (text: string) => {
@@ -372,7 +472,7 @@ const PatientDashboard = () => {
         return;
       }
 
-      // Call searchHospitals directly — no more mapLibrary dependency
+      // Search hospitals via Overpass API (no Google Maps needed)
       searchHospitals(triage.search_keyword);
     } catch(err) {
       toast.error("Triage analysis failed.");
@@ -387,35 +487,33 @@ const PatientDashboard = () => {
       return;
     }
     try {
-      if (bookingNetworkHospitalId) {
-        // Network hospital booking
-        await axios.post(`${API_URL}/api/network/appointments/book`, {
-          patient_id: patient?.id,
-          hospital_id: bookingNetworkHospitalId,
-          patient_name: patient?.name || "",
-          vela_id: patient?.vela_id || "",
-          date: bookingDate,
-          time: bookingTime
-        });
-        toast.success(`Appointment booked at ${bookingHospital?.name}. The receptionist has been notified.`);
-        setBookingNetworkHospitalId(null);
+      const payload = {
+        patient_id: patient?.id,
+        hospital_name: bookingHospital.name,
+        hospital_address: bookingHospital.vicinity,
+        hospital_id: bookingHospital.is_vela ? bookingHospital.id : null,
+        date: bookingDate,
+        time: bookingTime,
+        checklist: {
+          reports: true,
+          medications: true,
+          allergies: true,
+          history: true
+        }
+      };
+
+      await axios.post(`${API_URL}/api/appointments/book`, payload);
+      
+      if (bookingHospital.is_vela) {
+        toast.success(`Priority Appointment Request sent to ${bookingHospital.name}. The receptionist will confirm shortly.`);
       } else {
-        await axios.post(`${API_URL}/api/appointments/book`, {
-          patient_id: patient?.id,
-          hospital_name: bookingHospital.name,
-          hospital_address: bookingHospital.vicinity,
-          date: bookingDate,
-          time: bookingTime,
-          checklist: {
-            reports: true,
-            medications: true,
-            allergies: true,
-            history: true
-          }
-        });
-        toast.success("Appointment Confirmed");
+        toast.success("Appointment Scheduled Successfully");
       }
+      
       setBookingHospital(null);
+      // Refresh local appointments if needed
+      const aptRes = await axios.get(`${API_URL}/api/appointments/patient/${patient.id}`);
+      setAppointments(aptRes.data.appointments || []);
     } catch(err) {
       toast.error("Booking failed. Please try again.");
     }
@@ -1096,35 +1194,74 @@ const PatientDashboard = () => {
         <h2 className="text-4xl font-serif italic text-slate-900 mb-2">Find Care</h2>
         <p className="text-slate-500 font-light mb-8">AI-guided triage and intelligent facility routing.</p>
 
+        <div className="flex gap-4 mb-8">
+           <button onClick={() => setSearchMode('triage')} className={`px-6 py-2 rounded-full font-mono text-[10px] uppercase tracking-widest transition-all ${searchMode === 'triage' ? 'bg-[#0F766E] text-white' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}>Triage (Symptoms)</button>
+           <button onClick={() => setSearchMode('direct')} className={`px-6 py-2 rounded-full font-mono text-[10px] uppercase tracking-widest transition-all ${searchMode === 'direct' ? 'bg-[#0F766E] text-white' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}>Direct Search</button>
+        </div>
+
         {/* Input Area */}
         <div className="relative mb-6">
-           <input 
-             type="text" 
-             value={symptoms}
-             onChange={e => setSymptoms(e.target.value)}
-             onKeyDown={e => e.key === "Enter" && triggerTriage(symptoms)}
-             placeholder="Describe your symptoms..."
-             className="symptom-input w-full py-5 pl-6 pr-16 rounded-xl text-lg font-sans focus:outline-none transition-colors"
-             style={{
-               width: "100%",
-               padding: "14px 16px",
-               paddingRight: 56,
-               background: "white",
-               border: "1px solid rgba(15,118,110,0.3)",
-               borderRadius: 10,
-               fontFamily: "Geist, sans-serif",
-               fontSize: 15,
-               color: "#134E4A",
-               outline: "none",
-               boxSizing: "border-box"
-             }}
-           />
-           <button 
-             onClick={handleSymptomsVoice}
-             className={`absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full flex items-center justify-center transition-all ${isListeningFindCare ? 'bg-red-500/20 text-red-400 animate-pulse' : 'bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-blue-600'}`}
-           >
-              <Mic size={18} />
-           </button>
+           {searchMode === 'triage' ? (
+             <>
+               <input 
+                 type="text" 
+                 value={symptoms}
+                 onChange={e => setSymptoms(e.target.value)}
+                 onKeyDown={e => e.key === "Enter" && triggerTriage(symptoms)}
+                 placeholder="Describe your symptoms..."
+                 className="symptom-input w-full py-5 pl-6 pr-16 rounded-xl text-lg font-sans focus:outline-none transition-colors"
+                 style={{
+                   width: "100%",
+                   padding: "14px 16px",
+                   paddingRight: 56,
+                   background: "white",
+                   border: "1px solid rgba(15,118,110,0.3)",
+                   borderRadius: 10,
+                   fontFamily: "Geist, sans-serif",
+                   fontSize: 15,
+                   color: "#134E4A",
+                   outline: "none",
+                   boxSizing: "border-box"
+                 }}
+               />
+               <button 
+                 onClick={handleSymptomsVoice}
+                 className={`absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full flex items-center justify-center transition-all ${isListeningFindCare ? 'bg-red-500/20 text-red-400 animate-pulse' : 'bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-blue-600'}`}
+               >
+                  <Mic size={18} />
+               </button>
+             </>
+           ) : (
+             <div className="relative">
+               <input 
+                 type="text" 
+                 value={hospitalSearchQuery}
+                 onChange={e => setHospitalSearchQuery(e.target.value)}
+                 onKeyDown={e => e.key === "Enter" && searchHospitals(hospitalSearchQuery)}
+                 placeholder="Search Hospital Name or City..."
+                 className="w-full py-5 pl-6 pr-16 rounded-xl text-lg font-sans focus:outline-none transition-colors"
+                 style={{
+                   width: "100%",
+                   padding: "14px 16px",
+                   paddingRight: 100,
+                   background: "white",
+                   border: "1px solid #C8B89A",
+                   borderRadius: 10,
+                   fontFamily: "Geist, sans-serif",
+                   fontSize: 15,
+                   color: "#134E4A",
+                   outline: "none",
+                   boxSizing: "border-box"
+                 }}
+               />
+               <button 
+                 onClick={() => searchHospitals(hospitalSearchQuery)}
+                 className="absolute right-3 top-1/2 -translate-y-1/2 bg-[#0F766E] text-white px-4 py-2 rounded-lg font-mono text-[9px] uppercase tracking-widest font-bold"
+               >
+                 Search India
+               </button>
+             </div>
+           )}
         </div>
 
         {isTriageLoading && (
@@ -1179,134 +1316,68 @@ const PatientDashboard = () => {
 
          {/* Hospitals List */}
          <div className="bg-transparent overflow-y-auto styled-scrollbar pr-2" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {hospitals.length === 0 ? (
+            {isSearchingHospitals ? (
+                <div className="h-full flex items-center justify-center" style={{ minHeight: 200 }}>
+                   <div style={{ textAlign: "center" }}>
+                     <div style={{ width: 24, height: 24, border: "2px solid #0F766E", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto 12px" }} />
+                     <p className="font-mono text-[10px] uppercase tracking-widest text-slate-400">Finding hospitals nearby...</p>
+                   </div>
+                </div>
+            ) : hospitals.length === 0 ? (
                 <div className="h-full flex items-center justify-center border border-slate-100 border-dashed rounded-xl" style={{ minHeight: 200 }}>
-                   <p className="font-mono text-[10px] uppercase tracking-widest text-slate-400">Awaiting search...</p>
+                   <p className="font-mono text-[10px] uppercase tracking-widest text-slate-400">Describe symptoms to find nearby care</p>
                 </div>
             ) : (
-                hospitals.map((h, i) => {
-                  const lat = h.geometry?.location?.lat?.();
-                  const lng = h.geometry?.location?.lng?.();
-                  const dist = location && lat && lng ? calculateDistance(location.lat, location.lng, lat, lng) : null;
-                  const isOpen = h.opening_hours?.isOpen?.();
-                  const isSelected = selectedHospital?.place_id === h.place_id;
-                  const registeredIds = new Set(networkHospitals.map((n: any) => n.place_id));
-                  const isOnVela = registeredIds.has(h.place_id);
-                  const velaRecord = isOnVela ? networkHospitals.find((n: any) => n.place_id === h.place_id) : null;
-                  return (
-                    <div
-                      key={h.place_id || i}
-                      onClick={() => setSelectedHospital(h)}
-                      style={{
-                        background: isSelected ? "rgba(15,118,110,0.08)" : "white",
-                        border: isSelected ? "1px solid #0F766E" : isOnVela ? "1px solid rgba(200,184,154,0.4)" : "1px solid rgba(15,118,110,0.15)",
-                        borderRadius: 12,
-                        padding: 16,
-                        cursor: "pointer",
-                        transition: "all 0.2s",
-                        display: "flex",
-                        alignItems: "flex-start",
-                        gap: 12,
-                        position: "relative"
-                      }}
-                    >
-                      {/* ON VELA badge */}
-                      {isOnVela && (
-                        <div style={{
-                          position: "absolute", top: 10, right: 10,
-                          fontFamily: "Geist Mono, monospace", fontSize: 10,
-                          color: "#C8B89A", fontWeight: 700,
-                          border: "1px solid rgba(200,184,154,0.5)",
-                          borderRadius: 100, padding: "2px 8px",
-                          background: "rgba(200,184,154,0.08)",
-                          letterSpacing: "0.05em"
-                        }}>✦ ON VELA</div>
-                      )}
-
-                      {/* Index number */}
-                      <div style={{
-                        width: 28, height: 28, borderRadius: "50%",
-                        background: "#0F766E", color: "white",
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        fontFamily: "Geist Mono, monospace", fontSize: 12, fontWeight: 600,
-                        flexShrink: 0, marginTop: 2
-                      }}>{i + 1}</div>
-
-                      {/* Info */}
-                      <div style={{ flex: 1, minWidth: 0, paddingRight: isOnVela ? 80 : 0 }}>
-                        <p style={{ fontFamily: "Geist, sans-serif", fontWeight: 600, fontSize: 14, color: "#134E4A", marginBottom: 3, lineHeight: 1.3 }}>{h.name}</p>
-                        <p style={{ fontFamily: "Geist, sans-serif", fontSize: 12, color: "#6B6B6B", marginBottom: 8, lineHeight: 1.4 }}>{h.vicinity}</p>
-                        {isOnVela && velaRecord?.specializations?.length > 0 && (
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 6 }}>
-                            {velaRecord.specializations.map((s: string, si: number) => (
-                              <span key={si} style={{ fontFamily: "Geist, sans-serif", fontSize: 10, color: "#0F766E", background: "rgba(15,118,110,0.08)", borderRadius: 100, padding: "2px 7px" }}>{s}</span>
-                            ))}
-                          </div>
-                        )}
-                        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                          {dist !== null && (
-                            <span style={{ fontFamily: "Geist Mono, monospace", fontSize: 11, color: "#0F766E" }}>
-                              📍 {dist < 1 ? `${Math.round(dist * 1000)}m` : `${dist.toFixed(1)}km`}
-                            </span>
-                          )}
-                          {h.rating && (
-                            <span style={{ fontFamily: "Geist, sans-serif", fontSize: 11, color: "#6B6B6B" }}>
-                              ⭐ {h.rating}{h.user_ratings_total ? ` (${h.user_ratings_total})` : ""}
-                            </span>
-                          )}
-                          {h.opening_hours && (
-                            <span style={{
-                              fontFamily: "Geist Mono, monospace", fontSize: 10,
-                              color: isOpen ? "#22C55E" : "#EF4444",
-                              background: isOpen ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)",
-                              padding: "2px 8px", borderRadius: 100
-                            }}>
-                              {isOpen ? "Open" : "Closed"}
-                            </span>
+                hospitals.map((h, i) => (
+                  <div key={h.id || i} 
+                    className={`group relative overflow-hidden transition-all duration-500 hover:-translate-y-1 ${h.is_vela ? 'bg-[#0F172A] border-[#C8B89A]/40' : 'bg-white border-slate-200'}`}
+                    onClick={() => {
+                      setSelectedHospital(h);
+                      mapInstanceRef.current?.flyTo({ center: [h.lng, h.lat], zoom: 15 });
+                    }}
+                    style={{
+                      borderWidth: 1, borderRadius: 24, padding: 24, cursor: "pointer",
+                      display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20,
+                      boxShadow: h.is_vela ? '0 20px 40px -15px rgba(200,184,154,0.15)' : '0 10px 30px -12px rgba(0,0,0,0.05)'
+                    }}
+                  >
+                    {h.is_vela && <div className="absolute top-0 right-0 w-32 h-32 bg-[#C8B89A]/5 blur-3xl rounded-full -mr-16 -mt-16" />}
+                    
+                    <div className="flex items-center gap-6 relative z-10">
+                      <div className={`w-14 h-14 rounded-2xl flex items-center justify-center font-mono text-lg font-black transition-all duration-500 ${h.is_vela ? 'bg-[#C8B89A] text-[#0C0C0B] shadow-[0_0_30px_rgba(200,184,154,0.4)]' : 'bg-slate-50 text-slate-400 group-hover:bg-blue-600 group-hover:text-white'}`}>
+                        {h.is_vela ? 'V' : i + 1}
+                      </div>
+                      
+                      <div>
+                        <div className="flex items-center gap-4 mb-2">
+                          <h4 className={`font-serif italic text-3xl leading-none ${h.is_vela ? 'text-white' : 'text-slate-900'}`}>{h.name}</h4>
+                          {h.is_vela && (
+                            <div className="flex items-center gap-2 bg-[#C8B89A]/20 px-4 py-1.5 rounded-full border border-[#C8B89A]/30 backdrop-blur-md">
+                              <CheckCircle2 size={10} className="text-[#C8B89A]" />
+                              <span className="text-[10px] font-black text-[#C8B89A] uppercase tracking-[0.2em]">VERIFIED PARTNER</span>
+                              <div className="w-1.5 h-1.5 bg-[#C8B89A] rounded-full animate-pulse shadow-[0_0_8px_#C8B89A]" />
+                            </div>
                           )}
                         </div>
+                        <p className={`font-sans text-sm mb-4 max-w-md line-clamp-1 ${h.is_vela ? 'text-white/60' : 'text-slate-500'}`}>{h.vicinity}</p>
+                        <div className="flex items-center gap-4">
+                           <span className={`font-mono text-[10px] font-bold uppercase tracking-wider ${h.is_vela ? 'text-[#C8B89A]' : 'text-blue-600'}`}>
+                             {h.distance < 1 ? Math.round(h.distance * 1000) + 'm' : h.distance.toFixed(1) + 'km'} AWAY
+                           </span>
+                           {h.is_vela && <span className="font-mono text-[9px] text-[#22C55E] bg-[#22C55E]/10 px-2 py-0.5 rounded border border-[#22C55E]/20 uppercase font-bold tracking-widest">Live Sync</span>}
+                        </div>
                       </div>
-
-                      {/* Book button — only for Vela hospitals */}
-                      {isOnVela ? (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedHospital(h);
-                            setBookingHospital({ ...h, name: velaRecord?.name || h.name, vicinity: velaRecord?.address || h.vicinity });
-                            setBookingNetworkHospitalId(velaRecord?.id || null);
-                          }}
-                          style={{
-                            background: "#C8B89A", color: "#0C0C0B", border: "none",
-                            borderRadius: 8, padding: "8px 14px",
-                            fontFamily: "Geist Mono, monospace", fontSize: 10,
-                            fontWeight: 700, cursor: "pointer", flexShrink: 0,
-                            letterSpacing: "0.05em", textTransform: "uppercase",
-                            transition: "background 0.2s", marginTop: 2
-                          }}
-                        >
-                          Book
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); setSelectedHospital(h); setBookingHospital(h); setBookingNetworkHospitalId(null); }}
-                          style={{
-                            background: "#0F766E", color: "white", border: "none",
-                            borderRadius: 8, padding: "8px 14px",
-                            fontFamily: "Geist Mono, monospace", fontSize: 10,
-                            fontWeight: 600, cursor: "pointer", flexShrink: 0,
-                            letterSpacing: "0.05em", textTransform: "uppercase",
-                            transition: "background 0.2s"
-                          }}
-                        >
-                          Book
-                        </button>
-                      )}
                     </div>
-                  );
-                })
+
+                    <button 
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setBookingHospital(h); if (h.is_vela) setBookingNetworkHospitalId(h.id); }}
+                      className={`relative z-10 px-8 py-3.5 rounded-2xl font-mono text-[10px] font-black uppercase tracking-[0.2em] transition-all duration-300 ${h.is_vela ? 'bg-white text-[#0C0C0B] hover:bg-[#C8B89A] hover:scale-105 shadow-xl shadow-black/20' : 'bg-slate-900 text-white hover:bg-blue-600'}`}
+                    >
+                      {h.is_vela ? 'Initialize Transfer' : 'Book Session'}
+                    </button>
+                  </div>
+                ))
             )}
          </div>
       </div>
@@ -1339,8 +1410,8 @@ const PatientDashboard = () => {
                 <div key={apt.id} className="bg-white border border-slate-200 p-8 rounded-2xl flex items-center justify-between group hover:border-[#0F766E]/30 transition-all shadow-sm">
                     <div className="flex items-center gap-8">
                         <div className="w-16 h-16 bg-slate-50 border border-slate-100 rounded-xl flex flex-col items-center justify-center">
-                            <span className="font-serif italic text-2xl text-slate-900">{apt.appointment_time.split(':')[0]}</span>
-                            <span className="font-mono text-[8px] text-[#0F766E] font-bold uppercase">{apt.appointment_time.split(':')[1]} {parseInt(apt.appointment_time.split(':')[0]) >= 12 ? 'PM' : 'AM'}</span>
+                            <span className="font-serif italic text-2xl text-slate-900">{apt.time?.split(':')[0]}</span>
+                            <span className="font-mono text-[8px] text-[#0F766E] font-bold uppercase">{apt.time?.split(':')[1]} {parseInt(apt.time?.split(':')[0]) >= 12 ? 'PM' : 'AM'}</span>
                         </div>
                         <div>
                             <div className="flex items-center gap-3 mb-1">
@@ -1524,6 +1595,160 @@ const PatientDashboard = () => {
     </div>
   );
 
+  const fetchSymptomsList = async () => {
+    try {
+        const res = await axios.get(`${API_URL}/api/diagnostic/symptoms`);
+        if (res.data.status === "success") {
+            setAllSymptoms(res.data.symptoms);
+        }
+    } catch (err) {
+        console.error("Failed to fetch symptoms:", err);
+    }
+  };
+
+  const handleRunDiagnostic = async () => {
+    if (selectedSymptoms.length === 0) {
+        toast.error("Please select at least one symptom");
+        return;
+    }
+    setIsDiagnosticLoading(true);
+    try {
+        const res = await axios.post(`${API_URL}/api/diagnostic/predict`, { symptoms: selectedSymptoms });
+        if (res.data.status === "success") {
+            const processed = (res.data.predictions || []).map((p: any) => ({
+                ...p,
+                probability: (p.probability * 100).toFixed(1)
+            }));
+            setDiagnosticResults(processed);
+            setDiagnosticTab("results");
+            toast.success("Forensic Scan Complete");
+        } else {
+            toast.error(res.data.message || "Diagnostic failed");
+        }
+    } catch (err) {
+        toast.error("Diagnostic Engine unavailable");
+    } finally {
+        setIsDiagnosticLoading(false);
+    }
+  };
+
+  const renderDiagnosticScan = () => (
+    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-1000 h-full flex flex-col">
+       <div className="flex-none">
+          <div className="flex items-center gap-4 mb-2">
+            <h2 className="text-4xl font-serif italic text-slate-900">Neural Diagnostic Scan</h2>
+            <div className="bg-[#0F766E]/10 border border-[#0F766E]/20 px-3 py-1 rounded-full flex items-center gap-2">
+                <span className="text-[9px] font-black text-[#0F766E] uppercase tracking-wider">Atlas IQ Engine</span>
+                <div className="w-1.5 h-1.5 bg-[#0F766E] rounded-full animate-pulse" />
+            </div>
+          </div>
+          <p className="text-slate-500 font-light mb-8 max-w-2xl text-sm">Forensic symptom mapping via Random Forest classification. Reveal underlying physiological patterns with high-fidelity clinical data.</p>
+       </div>
+
+       {diagnosticTab === "select" ? (
+          <div className="flex-1 flex flex-col overflow-hidden">
+             <div className="flex-1 overflow-y-auto bg-white border border-slate-100 rounded-[32px] p-8 lg:p-12 mb-8 styled-scrollbar relative">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                   {(allSymptoms || []).map((symptom) => {
+                       const isSelected = selectedSymptoms.includes(symptom);
+                       const formatted = symptom.split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+                       return (
+                           <button 
+                             key={symptom}
+                             onClick={() => {
+                                 if (isSelected) setSelectedSymptoms(prev => prev.filter(s => s !== symptom));
+                                 else setSelectedSymptoms(prev => [...prev, symptom]);
+                             }}
+                             className={`p-4 rounded-xl border text-left transition-all duration-300 ${isSelected ? "bg-[#0F766E] border-[#0F766E] text-white shadow-lg" : "bg-slate-50 border-slate-100 text-slate-500 hover:border-slate-300"}`}
+                           >
+                              <div className="font-mono text-[9px] uppercase tracking-widest mb-1 opacity-50">{isSelected ? "Selected" : "System Vector"}</div>
+                              <div className="font-medium text-[11px] leading-tight">{formatted}</div>
+                           </button>
+                       );
+                   })}
+                </div>
+             </div>
+
+             <div className="flex-none flex items-center justify-between bg-slate-900 p-8 rounded-[24px]">
+                <div className="text-white/60 font-mono text-[10px] uppercase tracking-widest">
+                   {selectedSymptoms.length} Vectors Tagged for Analysis
+                </div>
+                <button 
+                  onClick={handleRunDiagnostic}
+                  disabled={isDiagnosticLoading || selectedSymptoms.length === 0}
+                  className="bg-white text-slate-900 px-12 py-4 rounded-xl font-mono text-[11px] uppercase tracking-[0.2em] font-black hover:bg-emerald-400 hover:text-slate-900 transition-all shadow-xl disabled:opacity-50"
+                >
+                   {isDiagnosticLoading ? "Processing Neural Matrix..." : "Run Forensic Scan"}
+                </button>
+             </div>
+          </div>
+       ) : (
+          <div className="flex-1 flex flex-col lg:flex-row gap-8 overflow-hidden">
+             <div className="flex-1 bg-[#080808] border border-white/5 rounded-[32px] p-10 flex flex-col relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/5 blur-[100px] rounded-full -mr-32 -mt-32" />
+                <div className="relative z-10">
+                   <h3 className="text-white font-mono text-[10px] uppercase tracking-[0.2em] mb-12 flex items-center gap-2">
+                       <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
+                       Neural Confidence Matrix
+                   </h3>
+
+                   <div className="space-y-12">
+                      {(diagnosticResults || []).map((result, i) => (
+                          <div key={i} className="animate-in fade-in slide-in-from-left duration-700" style={{ animationDelay: `${i * 200}ms` }}>
+                             <div className="flex justify-between items-end mb-4">
+                                <div>
+                                   <div className="font-mono text-[9px] text-white/40 uppercase tracking-widest mb-1">Observation 0{i+1}</div>
+                                   <div className="text-white text-4xl font-serif italic">{result.disease}</div>
+                                </div>
+                                <div className="text-emerald-400 font-mono text-xl font-bold">{result.probability}% <span className="text-white/20 text-[10px] uppercase tracking-widest ml-2">Conf.</span> </div>
+                             </div>
+                             <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                                <div 
+                                  className="h-full bg-emerald-500 rounded-full transition-all duration-1000 ease-out"
+                                  style={{ width: `${result.probability}%` }}
+                                />
+                             </div>
+                          </div>
+                      ))}
+                   </div>
+
+                   <div className="mt-16 p-6 border border-white/10 rounded-2xl bg-white/5 backdrop-blur-sm">
+                      <p className="text-[10px] text-white/40 font-mono uppercase tracking-[0.15em] leading-relaxed">
+                          ⚠️ Disclaimer: This is a probabilistic clinical model for Forensic Triage only. Consult a Vela-authorized physician for clinical confirmation and treatment planning.
+                      </p>
+                   </div>
+                </div>
+             </div>
+
+             <div className="w-full lg:w-80 flex flex-col gap-6">
+                <div className="bg-white border border-slate-100 rounded-[28px] p-8 flex-1 overflow-hidden flex flex-col shadow-sm">
+                   <h4 className="font-serif italic text-2xl text-slate-900 mb-6">Analyzed Vectors</h4>
+                   <div className="flex-1 overflow-y-auto pr-2 styled-scrollbar font-mono text-[10px] tracking-wider text-slate-400 uppercase space-y-2">
+                      {selectedSymptoms.map(s => (
+                          <div key={s} className="pb-2 border-b border-slate-50">{s.replace(/_/g, " ")}</div>
+                      ))}
+                   </div>
+                </div>
+                <button 
+                  onClick={() => { setDiagnosticTab("select"); setDiagnosticResults([]); setSelectedSymptoms([]); }}
+                  className="w-full py-5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-mono text-[11px] uppercase tracking-[0.2em] rounded-2xl transition-all"
+                >
+                   New Diagnostic Scan
+                </button>
+                {diagnosticResults.length > 0 && (
+                    <button 
+                        onClick={() => { setActiveTab("find-care"); setSearchMode("direct"); setHospitalSearchQuery(diagnosticResults[0].disease); }}
+                        className="w-full py-5 bg-[#0F766E] text-white font-mono text-[11px] uppercase tracking-[0.2em] rounded-2xl transition-all shadow-lg"
+                    >
+                        Search Related Facilities
+                    </button>
+                )}
+             </div>
+          </div>
+       )}
+    </div>
+  );
+
   const renderAtlas = () => (
     <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-1000 h-full flex flex-col items-center justify-center text-center">
        <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-blue-600 mb-4 block">Atlas Patient Companion</span>
@@ -1570,6 +1795,7 @@ const PatientDashboard = () => {
               { id: 'medications', icon: Pill },
               { id: 'history', icon: FileText },
               { id: 'find-care', icon: MapPin },
+              { id: 'diagnostic', icon: Activity },
               { id: 'appointments', icon: Calendar },
               { id: 'atlas', icon: Mic }
             ].map(tab => (
@@ -1625,6 +1851,9 @@ const PatientDashboard = () => {
         </div>
         <div className={activeTab === 'find-care' ? 'block' : 'hidden'}>
           {renderFindCare()}
+        </div>
+        <div className={activeTab === 'diagnostic' ? 'block' : 'hidden'}>
+           {renderDiagnosticScan()}
         </div>
         <div className={activeTab === 'appointments' ? 'block' : 'hidden'}>
           {renderAppointments()}

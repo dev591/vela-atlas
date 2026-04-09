@@ -11,7 +11,7 @@ import {
   Heart
 } from 'lucide-react';
 import { API_URL } from '../utils/config';
-import toast, { Toaster } from 'react-hot-toast';
+import toast from 'react-hot-toast';
 
 interface PatientData {
   name: string;
@@ -102,7 +102,6 @@ export default function WardScan() {
     const p = admissionData.patient;
     return (
       <div className="min-h-screen bg-[#080808] text-white font-sans selection:bg-blue-600/30">
-        <Toaster position="top-center" />
         
         {/* Header */}
         <div className="p-6 flex items-center justify-between border-b border-white/5 sticky top-0 bg-[#080808]/80 backdrop-blur-xl z-50">
@@ -230,8 +229,7 @@ export default function WardScan() {
 
   return (
     <div className="min-h-screen bg-[#080808] text-white font-sans flex flex-col items-center justify-center p-6 text-center">
-      <Toaster position="top-center" />
-      <div className="noise-overlay pointer-events-none opacity-20" />
+            <div className="noise-overlay pointer-events-none opacity-20" />
 
       {loading ? (
         <div className="space-y-6 animate-pulse">

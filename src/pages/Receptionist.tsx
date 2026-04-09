@@ -1,7 +1,7 @@
 import { API_URL } from "../utils/config";
 import React, { useEffect, useState, useRef } from 'react'
 import { gsap } from 'gsap'
-import toast, { Toaster } from 'react-hot-toast'
+import toast from 'react-hot-toast'
 import useSocket from '../hooks/useSocket'
 import { getUser, logout } from '../utils/auth'
 import { 
@@ -655,9 +655,6 @@ export default function Receptionist() {
     <div className="flex min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-blue-600/30">
       <div className="noise-overlay pointer-events-none z-0"></div>
       
-      <Toaster position="top-right" toastOptions={{
-          style: { background: '#FAFAF9', color: '#0C0C0B', fontFamily: 'Geist Mono', fontSize: '12px', borderRadius: '4px', border: '1px solid rgba(0,0,0,0.1)' }
-      }}/>
       
       <aside 
         className={`${sidebarExpanded ? 'w-[280px]' : 'w-[80px]'} fixed left-0 top-0 h-full bg-[#080808] border-r border-slate-100 z-50 transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] flex flex-col justify-between py-8 group`}
@@ -1162,19 +1159,22 @@ export default function Receptionist() {
                                             <div key={apt.id} className="bg-white border border-slate-200 p-6 rounded-3xl hover:border-blue-600/30 hover:shadow-xl hover:shadow-blue-500/5 transition-all flex items-center justify-between group">
                                                 <div className="flex items-center gap-6">
                                                     <div className="w-16 h-16 bg-slate-50 border border-slate-100 rounded-2xl flex flex-col items-center justify-center">
-                                                        <span className="font-mono text-xl font-bold text-slate-900">{apt.appointment_time.split(':')[0]}</span>
-                                                        <span className="font-mono text-[8px] text-slate-400 uppercase font-bold">{apt.appointment_time.split(':')[1]} {parseInt(apt.appointment_time.split(':')[0]) >= 12 ? 'PM' : 'AM'}</span>
+                                                        <span className="font-mono text-xl font-bold text-slate-900">{(apt.appointment_time || apt.time || '00:00').split(':')[0]}</span>
+                                                        <span className="font-mono text-[8px] text-slate-400 uppercase font-bold">{(apt.appointment_time || apt.time || '00:00').split(':')[1]} {parseInt((apt.appointment_time || apt.time || '00:00').split(':')[0]) >= 12 ? 'PM' : 'AM'}</span>
                                                     </div>
                                                     <div>
-                                                        <h4 className="font-serif italic text-2xl text-slate-900 group-hover:text-blue-600 transition-colors">{apt.patients?.name}</h4>
+                                                        <h4 className="font-serif italic text-2xl text-slate-900 group-hover:text-blue-600 transition-colors">
+                                                            {apt.patients?.name || apt.patient_name || 'Anonymous Patient'}
+                                                            {apt.vela_id && <span className="ml-3 font-mono text-[9px] text-blue-600 uppercase tracking-widest border border-blue-600/20 px-2 py-0.5 rounded-full">Vela Network</span>}
+                                                        </h4>
                                                         <div className="flex gap-4 mt-1">
-                                                            <span className="font-mono text-[9px] text-slate-400 uppercase tracking-widest flex items-center gap-1"><Clock size={10}/> {apt.appointment_time}</span>
-                                                            <span className="font-mono text-[9px] text-slate-400 uppercase tracking-widest flex items-center gap-1"><UserPlus size={10}/> {apt.doctor_name || 'Dr. West'}</span>
+                                                            <span className="font-mono text-[9px] text-slate-400 uppercase tracking-widest flex items-center gap-1"><Clock size={10}/> {apt.appointment_time || apt.time}</span>
+                                                            <span className="font-mono text-[9px] text-slate-400 uppercase tracking-widest flex items-center gap-1"><UserPlus size={10}/> {apt.doctor_name || 'General Admission'}</span>
                                                         </div>
                                                     </div>
                                                 </div>
                                                 <div className="flex gap-3">
-                                                    {apt.status === 'scheduled' ? (
+                                                    {(apt.status === 'scheduled' || apt.status === 'pending') ? (
                                                         <button 
                                                             onClick={() => handleMarkArrived(apt.id)}
                                                             className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl text-[10px] font-mono uppercase tracking-widest hover:bg-blue-700 transition-all shadow-lg shadow-blue-500/20"

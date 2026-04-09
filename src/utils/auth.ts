@@ -24,13 +24,17 @@ export function getUser() {
 }
 
 export function logout() {
-  localStorage.removeItem("vela_user")
-  localStorage.removeItem("vela_auth")
-  localStorage.removeItem("vela_role")
-  localStorage.removeItem("vela_patient_id")
-  localStorage.removeItem("vela_hospital_id")
+  const staffId = localStorage.getItem("vela_staff_id")
+  if (staffId) {
+    fetch(`${API_URL}/api/staff/logout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ staff_id: staffId })
+    }).catch(() => {})
+  }
+  localStorage.clear()
+  window.location.href = "/login"
 }
-
 export function isAuthenticated(): boolean {
   return localStorage.getItem("vela_auth") === "true"
 }

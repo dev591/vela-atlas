@@ -19,6 +19,8 @@ import QRScan from "./pages/QRScan";
 import HospitalManager from "./pages/HospitalManager";
 import LabController from "./pages/LabController";
 import WardScan from "./pages/WardScan";
+import VelaOwner from "./pages/VelaOwner";
+import ManagerWalkthrough from "./pages/ManagerWalkthrough";
 // import { isAuthenticated, getUser } from "./utils/auth";
 
 function AtlasWrapper({ currentPatientId }: { currentPatientId?: string }) {
@@ -153,12 +155,14 @@ function App() {
         position="top-right"
         toastOptions={{
           style: {
-            background: 'var(--bg-dark)',
-            color: 'var(--text-inverse)',
+            background: '#121211',
+            color: '#FAFAF9',
             fontFamily: "'Geist', sans-serif",
-            border: '1px solid var(--border-dark)',
-            borderRadius: '6px',
+            border: '1px solid rgba(200,184,154,0.3)',
+            borderRadius: '12px',
             fontSize: '14px',
+            padding: '12px 24px',
+            boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
           },
           success: {
             iconTheme: {
@@ -193,6 +197,8 @@ function App() {
         <Route path="/hospital-manager" element={<ProtectedRoute><HospitalManager /></ProtectedRoute>} />
         <Route path="/lab-controller" element={<ProtectedRoute><LabController /></ProtectedRoute>} />
         <Route path="/ward-scan" element={<WardScan />} />
+        <Route path="/vela-owner" element={<VelaOwner />} />
+        <Route path="/walkthrough" element={<ManagerWalkthrough />} />
       </Routes>
     </BrowserRouter>
   );

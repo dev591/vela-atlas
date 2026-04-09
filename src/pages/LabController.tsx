@@ -6,7 +6,7 @@ import {
   RefreshCw, Beaker, FileText, QrCode
 } from 'lucide-react';
 import { io } from 'socket.io-client';
-import toast, { Toaster } from 'react-hot-toast';
+import toast from 'react-hot-toast';
 import { formatDistanceToNow } from 'date-fns';
 import { API_URL, SOCKET_URL } from '../utils/config';
 
@@ -174,7 +174,6 @@ export default function LabController() {
 
   return (
     <div className="min-h-screen bg-[#0C0C0B] text-white flex flex-col font-sans">
-      <Toaster position="top-right" />
       
       {/* NAVBAR */}
       <nav className="h-[56px] border-b border-white/10 flex items-center justify-between px-6 bg-[#0C0C0B]/80 backdrop-blur-md sticky top-0 z-50">

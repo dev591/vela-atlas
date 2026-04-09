@@ -56,16 +56,24 @@ export default function Atlas({ currentPatientId, userRole }: Props) {
 
       {errorMsg && (
         <div style={{
-          background: "var(--danger-light)",
-          border: "1px solid var(--danger-border)",
-          borderRadius: 8,
-          padding: "10px 14px",
-          color: "var(--danger)",
+          background: "rgba(239,68,68,0.08)",
+          border: "1px solid rgba(239,68,68,0.25)",
+          borderRadius: 10,
+          padding: "12px 16px",
+          color: "#FAFAF9",
           fontFamily: "'Geist', sans-serif",
-          fontSize: 13,
-          whiteSpace: "nowrap"
+          fontSize: 12,
+          maxWidth: 320,
+          lineHeight: 1.5
         }}>
-          {errorMsg}
+          <div style={{ fontFamily: 'Geist Mono, monospace', fontSize: 9, color: '#EF4444', letterSpacing: '0.1em', marginBottom: 4 }}>ATLAS ERROR</div>
+          {errorMsg.includes("backend") || errorMsg.includes("unavailable")
+            ? "Backend is offline. Run: uvicorn main:app --port 8000"
+            : errorMsg.includes("Microphone") || errorMsg.includes("blocked")
+            ? "Microphone blocked. Click the lock icon in Chrome and allow microphone access."
+            : errorMsg.includes("Chrome")
+            ? "Please use Chrome browser for voice features."
+            : errorMsg}
         </div>
       )}
     </div>

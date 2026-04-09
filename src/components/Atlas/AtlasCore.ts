@@ -18,17 +18,16 @@ interface Callbacks {
 class AtlasCore {
   private recognition: any = null
   private isSpeaking = false
-  // private isWoken = false
   private state: AtlasState = "sleeping"
   private patientId?: string
-  // private userRole: string = "doctor"
+  private userRole: string = "doctor"
   private callbacks: Callbacks
   private SR: any = null
   private isHoldingSpace = false
 
   constructor(cb: Callbacks) {
     this.callbacks = cb
-    // this.userRole = cb.userRole || "doctor"
+    this.userRole = cb.userRole || "doctor"
   }
 
   private setState(s: AtlasState) {
@@ -94,8 +93,7 @@ class AtlasCore {
     }
     
     recognition.onresult = (e: any) => {
-      const raw = e.results[0][0].transcript
-                   .trim().toLowerCase()
+      const raw = e.results[0][0].transcript.trim().toLowerCase()
       console.log("[Atlas] heard:", raw)
       
       const query = raw
@@ -115,9 +113,7 @@ class AtlasCore {
     recognition.onerror = (e: any) => {
       console.log("[Atlas] error:", e.error)
       if (e.error === "not-allowed") {
-        this.callbacks.onError(
-          "Microphone blocked. Allow in Chrome settings."
-        )
+        this.callbacks.onError("Microphone blocked. Allow in Chrome settings.")
       }
       this.setState("sleeping")
     }
@@ -150,45 +146,72 @@ class AtlasCore {
     }
   }
 
+  // FIX 3 — Two-tone rising wake sound, 140ms total
   private playWakeSound() {
     try {
       const ctx = new window.AudioContext()
-      const o = ctx.createOscillator()
-      const g = ctx.createGain()
-      o.connect(g)
-      g.connect(ctx.destination)
-      o.frequency.setValueAtTime(880, ctx.currentTime)
-      o.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.12)
-      g.gain.setValueAtTime(0.08, ctx.currentTime)
-      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12)
-      o.start(ctx.currentTime)
-      o.stop(ctx.currentTime + 0.12)
+
+      const osc1 = ctx.createOscillator()
+      const gain1 = ctx.createGain()
+      osc1.connect(gain1)
+      gain1.connect(ctx.destination)
+      osc1.frequency.setValueAtTime(600, ctx.currentTime)
+      osc1.frequency.exponentialRampToValueAtTime(900, ctx.currentTime + 0.06)
+      gain1.gain.setValueAtTime(0.08, ctx.currentTime)
+      gain1.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08)
+      osc1.start(ctx.currentTime)
+      osc1.stop(ctx.currentTime + 0.08)
+
+      const osc2 = ctx.createOscillator()
+      const gain2 = ctx.createGain()
+      osc2.connect(gain2)
+      gain2.connect(ctx.destination)
+      osc2.frequency.setValueAtTime(900, ctx.currentTime + 0.05)
+      osc2.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.12)
+      gain2.gain.setValueAtTime(0.06, ctx.currentTime + 0.05)
+      gain2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.14)
+      osc2.start(ctx.currentTime + 0.05)
+      osc2.stop(ctx.currentTime + 0.14)
     } catch {}
   }
 
-  private async sendQuery(query: string) {
+  // FIX 4 — Auto retry once, 15s timeout
+  private async sendQuery(query: string, retryCount = 0) {
     this.setState("processing")
-    // this.isWoken = false
     try { this.recognition?.abort() } catch {}
 
     try {
       const res = await fetch(`${API_URL}/api/voice/query`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, patient_id: this.patientId || undefined, session_id: "doctor_session_1" })
+        body: JSON.stringify({
+          query,
+          patient_id: this.patientId || undefined,
+          session_id: "doctor_session_1",
+          user_role: this.userRole || "doctor"
+        }),
+        signal: AbortSignal.timeout(15000)
       })
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
 
       const data = await res.json()
       const answer = data?.answer || "I couldn't get a response right now."
       this.callbacks.onAnswer(query, answer)
       await this.speakAnswer(query, answer, data)
-    } catch (err) {
-      console.error("Atlas query failed", err)
-      this.callbacks.onError("Backend not reachable")
+    } catch (err: any) {
+      console.error("[Atlas] Query failed:", err)
+      if (retryCount < 1 && err.name !== "TimeoutError") {
+        console.log("[Atlas] Retrying once...")
+        await new Promise(r => setTimeout(r, 500))
+        return this.sendQuery(query, retryCount + 1)
+      }
+      this.callbacks.onError("Atlas is unavailable. Is the backend running?")
       this.setState("sleeping")
     }
   }
 
+  // FIX 1 — ElevenLabs streaming with optimize_streaming_latency: 3
   private async speakAnswer(_question: string, answer: string, fullResponse: any) {
     this.isSpeaking = true
     this.setState("speaking")
@@ -199,60 +222,52 @@ class AtlasCore {
 
     if (apiKey && apiKey.length > 10) {
       try {
-        const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "xi-api-key": apiKey
-          },
-          body: JSON.stringify({
-            text: answer,
-            model_id: "eleven_turbo_v2",
-            voice_settings: { stability: 0.4, similarity_boost: 0.8, style: 0.2, use_speaker_boost: true }
-          })
-        })
+        const r = await fetch(
+          `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "xi-api-key": apiKey,
+              "Accept": "audio/mpeg"
+            },
+            body: JSON.stringify({
+              text: answer,
+              model_id: "eleven_turbo_v2",
+              voice_settings: {
+                stability: 0.4,
+                similarity_boost: 0.8,
+                style: 0.1,
+                use_speaker_boost: false
+              },
+              optimize_streaming_latency: 3
+            })
+          }
+        )
 
-        if (r.ok) {
-          const blob = await r.blob()
+        if (r.ok && r.body) {
+          // Stream chunks into array then play — fastest approach
+          const reader = r.body.getReader()
+          const chunks: Uint8Array[] = []
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            if (value) chunks.push(value)
+          }
+          const total = chunks.reduce((acc, c) => acc + c.length, 0)
+          const merged = new Uint8Array(total)
+          let offset = 0
+          for (const chunk of chunks) { merged.set(chunk, offset); offset += chunk.length }
+
+          const blob = new Blob([merged], { type: "audio/mpeg" })
           const url = URL.createObjectURL(blob)
           const audio = new Audio(url)
           audio.volume = 1.0
-          audio.muted = false
-
-          console.log("[Atlas] Playing audio, duration:", audio.duration)
-          console.log("[Atlas] Audio URL:", url)
 
           spoken = await new Promise<boolean>((resolve) => {
-            const cleanup = () => {
-              URL.revokeObjectURL(url)
-              audio.onended = null
-              audio.onerror = null
-            }
-
-            audio.onended = () => {
-              cleanup()
-              resolve(true)
-            }
-
-            audio.onerror = (err) => {
-              cleanup()
-              console.error("[Atlas] Audio play failed:", err)
-              resolve(false)
-            }
-
-            const playPromise = audio.play()
-            if (playPromise !== undefined) {
-              playPromise
-                .then(() => {
-                  console.log("[Atlas] ElevenLabs audio playing")
-                  resolve(true)
-                })
-                .catch((err: any) => {
-                  cleanup()
-                  console.error("[Atlas] Audio play failed:", err)
-                  resolve(false)
-                })
-            }
+            audio.onended = () => { URL.revokeObjectURL(url); resolve(true) }
+            audio.onerror = () => { URL.revokeObjectURL(url); resolve(false) }
+            audio.play().catch(() => { URL.revokeObjectURL(url); resolve(false) })
           })
         }
       } catch (e) {
@@ -263,7 +278,6 @@ class AtlasCore {
 
     if (!spoken) {
       console.log("[Atlas] Using browser TTS")
-      console.log("[Atlas] Speaking:", answer.substring(0, 50))
       await new Promise<void>((resolve) => {
         window.speechSynthesis.cancel()
         const u = new SpeechSynthesisUtterance(answer)
@@ -301,17 +315,13 @@ class AtlasCore {
   ask(query: string) {
     const trimmed = query?.toString().trim()
     if (!trimmed) return
-    // this.isWoken = false
     this.setState("processing")
-    try {
-      this.recognition?.abort()
-    } catch {}
+    try { this.recognition?.abort() } catch {}
     this.sendQuery(trimmed)
   }
 
   stop() {
     this.isSpeaking = false
-    // this.isWoken = false
     if (this.recognition) {
       try { this.recognition.abort() } catch {}
     }
