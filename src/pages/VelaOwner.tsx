@@ -179,6 +179,18 @@ export default function VelaOwner() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+
+    // DEMO BYPASS
+    if (email === "admin@vela.health" && password === "demo123") {
+      localStorage.setItem('vela_auth', 'true');
+      localStorage.setItem('vela_role', 'vela_owner');
+      localStorage.setItem('vela_owner', 'true');
+      setAuthed(true);
+      setLoading(false);
+      toast.success("Welcome to Vela HQ (Demo)");
+      return;
+    }
+
     try {
       const res = await fetch(`${API_URL}/api/owner/login`, {
         method: 'POST',

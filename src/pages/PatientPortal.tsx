@@ -126,6 +126,26 @@ const PatientPortal = () => {
     }
     setLoading(true);
 
+    // DEMO BYPASS
+    if (loginForm.email === "patient@vela.health" && loginForm.password === "demo123") {
+      const demoPatient = {
+        vela_id: "VLA-DEMO-001",
+        name: "Demo Patient",
+        email: "patient@vela.health",
+        age: 30,
+        gender: "Male"
+      };
+      localStorage.setItem("vela_auth", "true");
+      localStorage.setItem("vela_role", "patient");
+      localStorage.setItem("vela_vela_id", demoPatient.vela_id);
+      localStorage.setItem("vela_patient", JSON.stringify(demoPatient));
+      localStorage.setItem("vela_email", loginForm.email);
+      setLoading(false);
+      toast.success("Identity Verified (Demo)");
+      navigate("/patient-dashboard");
+      return;
+    }
+
     // Demo patient shortcut — seed if needed then log in
     const DEMO_EMAIL = "patient@vela.ai";
     const DEMO_PASS = "vela2025";

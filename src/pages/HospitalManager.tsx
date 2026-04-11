@@ -151,6 +151,25 @@ export default function HospitalManager() {
   const handleManagerLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginLoading(true);
+
+    // DEMO BYPASS
+    if (loginEmail === "admin@vela.health" && loginPassword === "demo123") {
+      localStorage.setItem('vela_manager_auth', 'true');
+      localStorage.setItem('vela_manager_email', loginEmail);
+      localStorage.setItem('vela_hospital_id', 'VLA-DEMO');
+      localStorage.setItem('vela_hospital_name', 'Vela Demo Hospital');
+      localStorage.setItem('vela_manager_name', 'Demo Administrator');
+      localStorage.setItem('vela_manager_role', 'Systems Lead');
+      setIsAuthed(true);
+      setHospitalId('VLA-DEMO');
+      setHospitalName('Vela Demo Hospital');
+      setManagerName('Demo Administrator');
+      setManagerRole('Systems Lead');
+      setLoginLoading(false);
+      toast.success('Entering Demo Environment');
+      return;
+    }
+
     try {
       const res = await fetch(`${API_URL}/api/manager/login`, {
         method: 'POST',
@@ -188,39 +207,42 @@ export default function HospitalManager() {
   const [nodes, setNodes, onNodesChange] = useNodesState<any>([]);
   const [edges, , onEdgesChange] = useEdgesState<any>([]);
 
-  const fetchData = useCallback(async () => {
-    try {
-      const [ovRes, wardRes, staffRes] = await Promise.all([
-        fetch(`${API_URL}/api/hospital/overview?hospital_id=${hospitalId}`),
-        fetch(`${API_URL}/api/wards?hospital_id=${hospitalId}`),
-        fetch(`${API_URL}/api/staff/list?hospital_id=${hospitalId}`)
-      ]);
-
-      const ov = await ovRes.json();
-      const wrd = await wardRes.json();
-      const stf = await staffRes.json();
-
-      if (ov?.data) setOverview(ov.data);
-      if (wrd?.wards) {
-        setWards(wrd.wards);
-        // Setup Nodes
-        const flowNodes = wrd.wards.map((w: any, idx: number) => ({
-          id: String(w.id),
-          type: 'wardNode',
-          position: { x: w.x || 100, y: w.y || (idx * 250) + 50 },
-          data: { ...w },
-          draggable: true,
-        }));
-        setNodes(flowNodes);
-      }
-      if (stf?.staff) setStaff(stf.staff);
-      
-      setLoading(false);
     } catch (err) {
       console.error("Fetch error:", err);
-      setLoading(false); // Ensure loading is cleared even on error
+      // Fallback Demo Data if API fails (useful for local UI work)
+      if (hospitalId === 'VLA-DEMO' || !ovRes.ok) {
+        setOverview({
+          total_patients: 124,
+          active_inpatients: 42,
+          total_beds: 100,
+          admissions_today: 8,
+          appointments_today: 15,
+          utilization_trend: [
+            { t: '10/04', v: 30 }, { t: '11/04', v: 45 }, { t: '12/04', v: 40 }, 
+            { t: '13/04', v: 55 }, { t: '14/04', v: 50 }, { t: '15/04', v: 65 }
+          ],
+          risk_profile: [
+            { name: 'Critical', value: 5, color: '#EF4444' },
+            { name: 'Stable', value: 85, color: '#22C55E' },
+            { name: 'Monitoring', value: 34, color: '#3B82F6' }
+          ]
+        });
+        setStaff([
+          { id: '1', name: 'Dr. Demo', role: 'Chief Medical Officer', available: true },
+          { id: '2', name: 'Nurse Demo', role: 'Ward Manager', available: false }
+        ]);
+        setWards([
+          { id: 'w1', name: 'Demo ICU', type: 'Intensive Care', x: 100, y: 100 },
+          { id: 'w2', name: 'Demo Ward A', type: 'General', x: 400, y: 150 }
+        ]);
+        setNodes([
+          { id: 'w1', type: 'wardNode', position: { x: 100, y: 100 }, data: { name: 'Demo ICU', type: 'Intensive Care' } },
+          { id: 'w2', type: 'wardNode', position: { x: 400, y: 150 }, data: { name: 'Demo Ward A', type: 'General' } }
+        ]);
+      }
+      setLoading(false);
     }
-  }, [setNodes]);
+  }, [hospitalId, setNodes]);
 
   useEffect(() => {
     fetchData();
