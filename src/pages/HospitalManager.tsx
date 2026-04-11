@@ -28,8 +28,6 @@ import {
 
 // Removed top-level socket initialization to prevent execution crashes
 
-}
-
 // --- CUSTOM NODES ---
 
 const WardNode = ({ data }: { data: any }) => {
@@ -207,10 +205,37 @@ export default function HospitalManager() {
   const [nodes, setNodes, onNodesChange] = useNodesState<any>([]);
   const [edges, , onEdgesChange] = useEdgesState<any>([]);
 
+  const fetchData = useCallback(async () => {
+    let ovRes, wardRes, staffRes;
+    try {
+      ovRes = await fetch(`${API_URL}/api/hospital/overview?hospital_id=${hospitalId}`);
+      wardRes = await fetch(`${API_URL}/api/wards?hospital_id=${hospitalId}`);
+      staffRes = await fetch(`${API_URL}/api/staff/list?hospital_id=${hospitalId}`);
+
+      const ov = await ovRes.json();
+      const wrd = await wardRes.json();
+      const stf = await staffRes.json();
+
+      if (ov?.data) setOverview(ov.data);
+      if (wrd?.wards) {
+        setWards(wrd.wards);
+        // Setup Nodes
+        const flowNodes = wrd.wards.map((w: any, idx: number) => ({
+          id: String(w.id),
+          type: 'wardNode',
+          position: { x: w.x || 100, y: w.y || (idx * 250) + 50 },
+          data: { ...w },
+          draggable: true,
+        }));
+        setNodes(flowNodes);
+      }
+      if (stf?.staff) setStaff(stf.staff);
+      
+      setLoading(false);
     } catch (err) {
       console.error("Fetch error:", err);
       // Fallback Demo Data if API fails (useful for local UI work)
-      if (hospitalId === 'VLA-DEMO' || !ovRes.ok) {
+      if (hospitalId === 'VLA-DEMO' || !ovRes || !ovRes.ok) {
         setOverview({
           total_patients: 124,
           active_inpatients: 42,
@@ -726,58 +751,6 @@ export default function HospitalManager() {
             </div>
           )}
 
-          {activeTab === 'staff' && (
-            <div className="max-w-6xl mx-auto space-y-6">
-              <div className="flex items-center justify-between mb-2">
-                <div>
-                  <h2 className="text-2xl font-black text-slate-900 tracking-tight">Personnel Registry</h2>
-                  <p className="text-sm font-medium text-slate-400">Manage medical staff and active duty permissions</p>
-                </div>
-                <button className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-2xl text-sm font-bold hover:bg-slate-800 transition-all shadow-lg shadow-slate-200">
-                  <Database size={18} /> ADD STAFF MEMBER
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 gap-4">
-                {staff.map((s) => (
-                  <div key={s.id} className="bg-white border border-slate-200 p-5 rounded-2xl flex items-center justify-between hover:border-blue-200 hover:shadow-sm transition-all group">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 overflow-hidden ring-2 ring-slate-50">
-                        <img src={`https://ui-avatars.com/api/?name=${encodeURIComponent(s.name)}&background=random`} alt={s.name} />
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-bold text-slate-900">{s.name}</h4>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <span className="text-[10px] font-bold text-blue-600 uppercase bg-blue-50 px-2 py-0.5 rounded">{s.role}</span>
-                          <span className="text-[10px] font-medium text-slate-400">ID: {s.id.substring(0,8)}</span>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-center gap-12">
-                      <div className="flex flex-col items-center">
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Status</span>
-                        <div className={`px-3 py-1 rounded-full text-[10px] font-bold ${s.available ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
-                          {s.available ? 'ON DUTY' : 'OFF DUTY'}
-                        </div>
-                      </div>
-                      <div className="flex flex-col items-end">
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Action</span>
-                        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button className="p-2 bg-slate-50 hover:bg-slate-100 rounded-lg text-slate-500">
-                            <Settings size={14} />
-                          </button>
-                          <button className="p-2 bg-rose-50 hover:bg-rose-100 rounded-lg text-rose-500">
-                            <Trash size={14} />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
 
           {/* ── STAFF MANAGEMENT TAB ── */}
           {activeTab === 'staff_mgmt' && (
