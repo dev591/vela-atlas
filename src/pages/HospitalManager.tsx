@@ -28,29 +28,6 @@ import {
 
 // Removed top-level socket initialization to prevent execution crashes
 
-interface NetworkHospital {
-  id: string;
-  name: string;
-  address: string;
-  place_id: string;
-  lat: number;
-  lng: number;
-  specializations: string[];
-  receptionist_email: string;
-  receptionist_name: string;
-  created_at: string;
-}
-
-interface NetworkAppointment {
-  id: string;
-  hospital_id: string;
-  patient_id: string;
-  patient_name: string;
-  vela_id: string;
-  date: string;
-  time: string;
-  status: 'pending' | 'arrived' | 'cancelled';
-  created_at: string;
 }
 
 // --- CUSTOM NODES ---
@@ -141,9 +118,11 @@ export default function HospitalManager() {
   const [loginPassword, setLoginPassword] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
   const socket = useMemo(() => io(SOCKET_URL), []);
-  const [activeTab, setActiveTab] = useState<'overview' | 'map' | 'staff' | 'analytics' | 'config' | 'hospitals' | 'staff_mgmt' | 'command'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'map' | 'staff' | 'analytics' | 'config' | 'staff_mgmt' | 'command'>('overview');
   const [hospitalId, setHospitalId] = useState(localStorage.getItem('vela_hospital_id') || '');
   const [hospitalName, setHospitalName] = useState(localStorage.getItem('vela_hospital_name') || '');
+  const [managerName, setManagerName] = useState(localStorage.getItem('vela_manager_name') || '');
+  const [managerRole, setManagerRole] = useState(localStorage.getItem('vela_manager_role') || 'Medical Director');
   const [wards, setWards] = useState<any[]>([]);
   const [staffList, setStaffList] = useState<any>({ doctors: [], receptionists: [], lab_controllers: [] });
   const [showAddStaff, setShowAddStaff] = useState(false);
@@ -160,18 +139,9 @@ export default function HospitalManager() {
   const [staff, setStaff] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showWizard, setShowWizard] = useState(false);
+  const [showAddWardModal, setShowAddWardModal] = useState(false);
+  const [newWard, setNewWard] = useState({ name: '', type: 'General', color: '#3B82F6', floor_number: 1 });
 
-  // Network Hospitals state
-  const [hospitalNameInput, setHospitalNameInput] = useState('');
-  const [verifying, setVerifying] = useState(false);
-  const [verifiedHospital, setVerifiedHospital] = useState<{ name: string; address: string; place_id: string; lat: number; lng: number } | null>(null);
-  const [verifyError, setVerifyError] = useState<string | null>(null);
-  const [specializations, setSpecializations] = useState<string[]>([]);
-  const [specializationInput, setSpecializationInput] = useState('');
-  const [receptionistName, setReceptionistName] = useState('');
-  const [registering, setRegistering] = useState(false);
-  const [registrationError, setRegistrationError] = useState<string | null>(null);
-  const [credentials, setCredentials] = useState<{ email: string; password: string; hospital_name: string } | null>(null);
   useEffect(() => {
     if (localStorage.getItem('vela_manager_auth') === 'true') {
       setIsAuthed(true);
@@ -192,8 +162,12 @@ export default function HospitalManager() {
         localStorage.setItem('vela_manager_auth', 'true');
         localStorage.setItem('vela_hospital_id', data.hospital_id);
         localStorage.setItem('vela_hospital_name', data.hospital_name);
+        localStorage.setItem('vela_manager_name', data.manager_name);
+        localStorage.setItem('vela_manager_role', data.role);
         setHospitalId(data.hospital_id);
         setHospitalName(data.hospital_name);
+        setManagerName(data.manager_name);
+        setManagerRole(data.role);
         setIsAuthed(true);
         if (data.walkthrough_done === false) {
           setShowWizard(true);
@@ -208,8 +182,6 @@ export default function HospitalManager() {
       setLoginLoading(false);
     }
   };
-  const [networkHospitals, setNetworkHospitals] = useState<NetworkHospital[]>([]);
-  const [networkLoading, setNetworkLoading] = useState(false);
   const [copiedField, setCopiedField] = useState<'email' | 'password' | null>(null);
   
   // React Flow State
@@ -342,14 +314,6 @@ export default function HospitalManager() {
   }, [fetchData]);
 
   useEffect(() => {
-    if (activeTab === 'hospitals') {
-      setNetworkLoading(true);
-      fetch(`${API_URL}/api/network/hospitals`)
-        .then(r => r.json())
-        .then(d => { if (d.status === 'success') setNetworkHospitals(d.hospitals); })
-        .catch(console.error)
-        .finally(() => setNetworkLoading(false));
-    }
     if (activeTab === 'staff_mgmt' && hospitalId) {
       fetch(`${API_URL}/api/manager/staff/${hospitalId}`)
         .then(r => r.json())
@@ -362,7 +326,7 @@ export default function HospitalManager() {
         .then(d => { if (d.status === 'success') setCommandData(d); })
         .catch(console.error);
     }
-  }, [activeTab]);
+  }, [activeTab, hospitalId]);
 
   const onNodeDragStop = async (_event: any, node: any) => {
     try {
@@ -388,6 +352,26 @@ export default function HospitalManager() {
       setSearchResult(data.patients || []);
     } catch (err) {
       console.error("Search error:", err);
+    }
+  };
+
+  const handleAddWard = async () => {
+    if (!newWard.name) return;
+    try {
+      const res = await fetch(`${API_URL}/api/wards`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...newWard, hospital_id: hospitalId })
+      });
+      const data = await res.json();
+      if (data.status === 'success') {
+        toast.success(`Ward ${data.ward.name} created`);
+        setShowAddWardModal(false);
+        setNewWard({ name: '', type: 'General', color: '#3B82F6', floor_number: 1 });
+        fetchData();
+      }
+    } catch (err) {
+      toast.error('Failed to create ward');
     }
   };
 
@@ -437,8 +421,20 @@ export default function HospitalManager() {
       {showWizard && (
         <VelaOnboardingWizard 
           initialData={{ id: hospitalId, name: hospitalName }}
-          onboarderName={hospitalName} // Manager name is usually retrieved but we'll use hospitalName for now or leave it to wizard to fetch
-          onClose={() => { setShowWizard(false); fetchData(); }}
+          onboarderName={managerName || hospitalName}
+          onClose={async () => { 
+            setShowWizard(false); 
+            try {
+              await fetch(`${API_URL}/api/manager/complete-walkthrough`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ hospital_id: hospitalId })
+              });
+            } catch (err) {
+              console.error("Failed to save walkthrough state:", err);
+            }
+            fetchData(); 
+          }}
           isManagerSetup={true}
         />
       )}
@@ -525,12 +521,12 @@ export default function HospitalManager() {
         {/* Top Tab Bar */}
         <header className="h-[72px] bg-white border-b border-slate-200 flex items-center justify-between px-8 z-10 shadow-sm shadow-slate-900/5">
           <nav className="flex items-center gap-1">
+            {/* Tabs List Filtered */}
             {[
               { id: 'overview', icon: BarChart, label: 'Performance' },
               { id: 'map', icon: MapIcon, label: 'Ward Map' },
-              { id: 'staff', icon: Users, label: 'Personnel' },
-              { id: 'analytics', icon: Activity, label: 'AI Trends' },
-              { id: 'config', icon: Settings, label: 'System' },
+              { id: 'staff_mgmt', icon: Users, label: 'Personnel' },
+              { id: 'command', icon: Activity, label: 'Command Center' },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -545,42 +541,16 @@ export default function HospitalManager() {
                 {tab.label}
               </button>
             ))}
-            <button
-              type="button"
-              onClick={() => setActiveTab('hospitals')}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 6,
-                padding: '10px 20px', borderRadius: 12,
-                fontSize: 14, fontWeight: 600,
-                background: activeTab === 'hospitals' ? 'rgba(15,118,110,0.1)' : 'transparent',
-                color: activeTab === 'hospitals' ? '#0F766E' : '#64748b',
-                border: activeTab === 'hospitals' ? '1px solid rgba(15,118,110,0.25)' : '1px solid transparent',
-                cursor: 'pointer', transition: 'all 0.2s'
-              }}
-            >
-              <Plus size={16} />
-              Hospitals
-            </button>
-            <button type="button" onClick={() => setActiveTab('staff_mgmt')}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 20px', borderRadius: 12, fontSize: 14, fontWeight: 600, background: activeTab === 'staff_mgmt' ? 'rgba(15,118,110,0.1)' : 'transparent', color: activeTab === 'staff_mgmt' ? '#0F766E' : '#64748b', border: activeTab === 'staff_mgmt' ? '1px solid rgba(15,118,110,0.25)' : '1px solid transparent', cursor: 'pointer', transition: 'all 0.2s' }}>
-              <Users size={16} />
-              Staff
-            </button>
-            <button type="button" onClick={() => setActiveTab('command')}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 20px', borderRadius: 12, fontSize: 14, fontWeight: 600, background: activeTab === 'command' ? 'rgba(99,102,241,0.1)' : 'transparent', color: activeTab === 'command' ? '#6366f1' : '#64748b', border: activeTab === 'command' ? '1px solid rgba(99,102,241,0.25)' : '1px solid transparent', cursor: 'pointer', transition: 'all 0.2s' }}>
-              <Activity size={16} />
-              Command
-            </button>
           </nav>
 
           <div className="flex items-center gap-6">
             <div className="flex flex-col items-end">
-              <span className="text-xs font-bold text-slate-800 tracking-tight">Dr. Sarah West</span>
-              <span className="text-[10px] font-bold text-slate-400 tracking-widest uppercase italic">Medical Director</span>
+              <span className="text-xs font-bold text-slate-800 tracking-tight">{managerName || 'Manager'}</span>
+              <span className="text-[10px] font-bold text-slate-400 tracking-widest uppercase italic">{managerRole || 'Hospital Director'}</span>
             </div>
             <div className="w-10 h-10 rounded-full border-2 border-slate-200 p-0.5 cursor-pointer hover:border-blue-400 transition-colors">
               <div className="w-full h-full rounded-full bg-slate-100 flex items-center justify-center text-slate-600 font-bold overflow-hidden">
-                <img src="https://ui-avatars.com/api/?name=Dr+Sarah+West&background=f1f5f9&color=64748b" alt="Director" />
+                <img src={`https://ui-avatars.com/api/?name=${encodeURIComponent(managerName || 'Manager')}&background=f1f5f9&color=64748b`} alt="Director" />
               </div>
             </div>
           </div>
@@ -604,7 +574,6 @@ export default function HospitalManager() {
                       <div className={`p-3 rounded-xl ${stat.bg} ${stat.color} transition-transform group-hover:scale-110`}>
                         <stat.icon size={22} />
                       </div>
-                      <span className="text-[10px] font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-full">+4%</span>
                     </div>
                     <div>
                       <h4 className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1">{stat.label}</h4>
@@ -617,29 +586,24 @@ export default function HospitalManager() {
                 ))}
               </div>
 
-              {/* Main Visuals Group */}
-              <div className="grid grid-cols-3 gap-8">
-                {/* Occupancy Chart */}
-                <div className="col-span-2 bg-white rounded-3xl border border-slate-200 p-8 shadow-sm">
+                {/* Charts Grid */}
+                <div className="grid grid-cols-3 gap-8">
+                  {/* Occupancy Chart */}
+                  <div className="col-span-2 bg-white rounded-3xl border border-slate-200 p-8 shadow-sm">
                   <div className="flex items-center justify-between mb-10">
                     <div>
                       <h3 className="text-lg font-bold text-slate-900 leading-none mb-2">Facility Utilization</h3>
-                      <p className="text-xs font-semibold text-slate-400">Total bed occupancy trend over the last 14 days</p>
+                      <p className="text-xs font-semibold text-slate-400">Total ward occupancy for the last 14 days</p>
                     </div>
                     <div className="p-2 border border-slate-200 rounded-xl">
                       <select className="bg-transparent text-[11px] font-bold text-slate-600 focus:outline-none pr-4">
                         <option>LAST 14 DAYS</option>
-                        <option>LAST 30 DAYS</option>
                       </select>
                     </div>
                   </div>
                   <div className="h-[300px] w-full">
                     <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={[
-                        { t: 'Mar 1', v: 45 }, { t: 'Mar 3', v: 52 }, { t: 'Mar 5', v: 48 }, 
-                        { t: 'Mar 7', v: 61 }, { t: 'Mar 9', v: 58 }, { t: 'Mar 11', v: 72 }, 
-                        { t: 'Mar 13', v: 68 }, { t: 'Mar 15', v: 75 }
-                      ]}>
+                      <AreaChart data={overview.utilization_trend || []}>
                         <defs>
                           <linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1">
                             <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.1}/>
@@ -675,43 +639,37 @@ export default function HospitalManager() {
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
                         <Pie
-                          data={[
-                            { name: 'Critical', value: overview?.critical_patients || 0, color: '#EF4444' },
-                            { name: 'Moderate', value: 12, color: '#F59E0B' },
-                            { name: 'Stable', value: Math.max(0, (overview?.total_patients || 0) - (overview?.critical_patients || 0) - 12), color: '#10B981' },
-                          ]}
+                          data={overview.risk_profile || []}
                           innerRadius={60}
                           outerRadius={90}
                           paddingAngle={8}
                           dataKey="value"
                         >
-                          <Cell fill="#EF4444" stroke="none" />
-                          <Cell fill="#F59E0B" stroke="none" />
-                          <Cell fill="#10B981" stroke="none" />
+                          {(overview.risk_profile || []).map((entry: any, index: number) => (
+                            <Cell key={`cell-${index}`} fill={entry.color} stroke="none" />
+                          ))}
                         </Pie>
                         <Tooltip />
                       </PieChart>
                     </ResponsiveContainer>
                   </div>
                   <div className="space-y-3 mt-6">
-                    {[
-                      { l: 'Critical (Red)', c: 'bg-red-500', p: '12%' },
-                      { l: 'Moderate (Amber)', c: 'bg-amber-500', p: '45%' },
-                      { l: 'Stable (Green)', c: 'bg-green-500', p: '43%' }
-                    ].map((row, i) => (
+                    {(overview.risk_profile || []).map((row: any, i: number) => (
                       <div key={i} className="flex items-center justify-between px-3 py-2 bg-slate-50 rounded-xl">
                         <div className="flex items-center gap-2">
-                          <div className={`w-2 h-2 rounded-full ${row.c}`}></div>
-                          <span className="text-[10px] font-bold text-slate-600 uppercase tracking-tight">{row.l}</span>
+                          <div className={`w-2 h-2 rounded-full`} style={{ backgroundColor: row.color }}></div>
+                          <span className="text-[10px] font-bold text-slate-600 uppercase tracking-tight">{row.name}</span>
                         </div>
-                        <span className="text-[11px] font-black text-slate-900">{row.p}</span>
+                        <span className="text-[11px] font-black text-slate-900">
+                          {overview.total_patients > 0 ? Math.round((row.value / overview.total_patients) * 100) : 0}%
+                        </span>
                       </div>
                     ))}
-                  </div>
                 </div>
               </div>
             </div>
-          )}
+          </div>
+        )}
 
           {activeTab === 'map' && (
             <div className="h-full w-full bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden relative">
@@ -734,7 +692,10 @@ export default function HospitalManager() {
                       <p className="text-[10px] font-semibold text-slate-500">Drag wards to customize your administrative view</p>
                     </div>
                     <div className="h-10 w-[1px] bg-slate-200"></div>
-                    <button className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-200">
+                    <button 
+                      onClick={() => setShowAddWardModal(true)}
+                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-200"
+                    >
                       <Plus size={14} /> NEW WARD
                     </button>
                   </div>
@@ -792,250 +753,6 @@ export default function HospitalManager() {
                     </div>
                   </div>
                 ))}
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'analytics' && (
-            <div className="max-w-7xl mx-auto space-y-8">
-              <div className="flex items-center gap-3 p-6 bg-indigo-900 rounded-3xl text-white relative overflow-hidden shadow-2xl shadow-indigo-200">
-                <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl"></div>
-                <div className="relative p-4 bg-white/20 rounded-2xl backdrop-blur-md">
-                  <Brain size={32} className="text-white" />
-                </div>
-                <div className="relative">
-                  <h2 className="text-xl font-black tracking-tight">Vela Atlas AI Core</h2>
-                  <p className="text-sm font-medium text-indigo-100/80 max-w-xl">
-                    Our neural analysis engine is cross-referencing discharge likelihood with real-time vitals and historical patient data. 
-                    Prediction accuracy improved by 14% this week.
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-8">
-                <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
-                  <h3 className="text-sm font-bold text-slate-900 mb-8 flex items-center gap-2">
-                    <ArrowUpRight className="text-green-500" /> Patient Risk Trajectory
-                  </h3>
-                  <div className="h-[300px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={[
-                        { t: '10 AM', v: 45 }, { t: '12 PM', v: 38 }, { t: '2 PM', v: 42 }, 
-                        { t: '4 PM', v: 36 }, { t: '6 PM', v: 30 }, { t: '8 PM', v: 28 }
-                      ]}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                        <XAxis dataKey="t" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 700}} />
-                        <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 700}} />
-                        <Tooltip />
-                        <Line type="monotone" dataKey="v" stroke="#6366f1" strokeWidth={4} dot={{ r: 4, fill: '#6366f1', strokeWidth: 2, stroke: '#fff' }} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-                <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
-                  <h3 className="text-sm font-bold text-slate-900 mb-8 flex items-center gap-2">
-                    <ArrowDownRight className="text-blue-500" /> Discharge Efficiency
-                  </h3>
-                  <div className="h-[300px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={[
-                        { t: 'Mon', v: 82 }, { t: 'Tue', v: 78 }, { t: 'Wed', v: 85 }, 
-                        { t: 'Thu', v: 91 }, { t: 'Fri', v: 88 }, { t: 'Sat', v: 94 }
-                      ]}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                        <XAxis dataKey="t" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 700}} />
-                        <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 700}} />
-                        <Tooltip />
-                        <Line type="stepAfter" dataKey="v" stroke="#2dd4bf" strokeWidth={4} dot={false} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'hospitals' && (
-            <div style={{ maxWidth: 900, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 32, padding: '8px 0' }}>
-
-              {/* Credential Modal */}
-              {credentials && (
-                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-                  <div style={{ background: '#fff', borderRadius: 20, padding: 40, maxWidth: 480, width: '90%', textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
-                    <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'rgba(34,197,94,0.1)', border: '2px solid #22C55E', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', fontSize: 24 }}>✓</div>
-                    <h3 style={{ fontFamily: 'Instrument Serif, serif', fontSize: 26, color: '#0F172A', marginBottom: 6 }}>Hospital Registered!</h3>
-                    <p style={{ fontFamily: 'Geist, sans-serif', fontSize: 13, color: '#64748b', marginBottom: 28 }}>{credentials.hospital_name}</p>
-                    <div style={{ background: '#F8FAFC', borderRadius: 12, padding: 20, marginBottom: 20, textAlign: 'left' }}>
-                      <p style={{ fontFamily: 'Geist Mono, monospace', fontSize: 10, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12 }}>Receptionist Credentials</p>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                        <div>
-                          <p style={{ fontFamily: 'Geist Mono, monospace', fontSize: 10, color: '#94a3b8', marginBottom: 2 }}>EMAIL</p>
-                          <p style={{ fontFamily: 'Geist Mono, monospace', fontSize: 13, color: '#0F172A', fontWeight: 600 }}>{credentials.email}</p>
-                        </div>
-                        <button type="button" onClick={() => { navigator.clipboard.writeText(credentials.email); setCopiedField('email'); setTimeout(() => setCopiedField(null), 1500); }}
-                          style={{ background: copiedField === 'email' ? '#22C55E' : '#0F766E', color: 'white', border: 'none', borderRadius: 6, padding: '6px 14px', fontFamily: 'Geist Mono, monospace', fontSize: 10, cursor: 'pointer' }}>
-                          {copiedField === 'email' ? 'Copied!' : 'Copy'}
-                        </button>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div>
-                          <p style={{ fontFamily: 'Geist Mono, monospace', fontSize: 10, color: '#94a3b8', marginBottom: 2 }}>PASSWORD</p>
-                          <p style={{ fontFamily: 'Geist Mono, monospace', fontSize: 13, color: '#0F172A', fontWeight: 600 }}>{credentials.password}</p>
-                        </div>
-                        <button type="button" onClick={() => { navigator.clipboard.writeText(credentials.password); setCopiedField('password'); setTimeout(() => setCopiedField(null), 1500); }}
-                          style={{ background: copiedField === 'password' ? '#22C55E' : '#0F766E', color: 'white', border: 'none', borderRadius: 6, padding: '6px 14px', fontFamily: 'Geist Mono, monospace', fontSize: 10, cursor: 'pointer' }}>
-                          {copiedField === 'password' ? 'Copied!' : 'Copy'}
-                        </button>
-                      </div>
-                    </div>
-                    <button type="button" onClick={() => { setCredentials(null); setVerifiedHospital(null); setSpecializations([]); setReceptionistName(''); setHospitalNameInput(''); setRegistrationError(null); }}
-                      style={{ background: '#0F766E', color: 'white', border: 'none', borderRadius: 10, padding: '12px 32px', fontFamily: 'Geist, sans-serif', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>
-                      Done
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Registration Form */}
-              <div style={{ background: 'white', borderRadius: 20, border: '1px solid #E2E8F0', padding: 32 }}>
-                <h2 style={{ fontFamily: 'Instrument Serif, serif', fontSize: 28, color: '#0F172A', marginBottom: 6 }}>Register Hospital</h2>
-                <p style={{ fontFamily: 'Geist, sans-serif', fontSize: 14, color: '#64748b', marginBottom: 28 }}>Add a hospital to the Vela network and generate receptionist credentials.</p>
-
-                {/* Verify */}
-                <div style={{ marginBottom: 24 }}>
-                  <label style={{ fontFamily: 'Geist Mono, monospace', fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em', display: 'block', marginBottom: 8 }}>Hospital Name</label>
-                  <div style={{ display: 'flex', gap: 12 }}>
-                    <input type="text" value={hospitalNameInput}
-                      onChange={e => { setHospitalNameInput(e.target.value); setVerifyError(null); }}
-                      placeholder="e.g. Apollo Hospital Hyderabad"
-                      style={{ flex: 1, padding: '12px 16px', border: '1px solid #E2E8F0', borderRadius: 10, fontFamily: 'Geist, sans-serif', fontSize: 14, color: '#0F172A', outline: 'none' }} />
-                    <button type="button" disabled={verifying || !hospitalNameInput.trim()}
-                      onClick={async () => {
-                        setVerifying(true); setVerifyError(null); setVerifiedHospital(null);
-                        try {
-                          const key = import.meta.env.VITE_GOOGLE_MAPS_KEY;
-                          const res = await fetch(`https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(hospitalNameInput)}&key=${key}`);
-                          const data = await res.json();
-                          if (data.results && data.results.length > 0) {
-                            const r = data.results[0];
-                            setVerifiedHospital({ name: r.name, address: r.formatted_address, place_id: r.place_id, lat: r.geometry.location.lat, lng: r.geometry.location.lng });
-                          } else {
-                            setVerifyError('Hospital not found on Google Maps. Please check the name and try again.');
-                          }
-                        } catch { setVerifyError('Hospital not found on Google Maps. Please check the name and try again.'); }
-                        finally { setVerifying(false); }
-                      }}
-                      style={{ padding: '12px 20px', background: verifying || !hospitalNameInput.trim() ? '#94a3b8' : '#0F766E', color: 'white', border: 'none', borderRadius: 10, fontFamily: 'Geist, sans-serif', fontWeight: 600, fontSize: 13, cursor: verifying || !hospitalNameInput.trim() ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }}>
-                      {verifying ? 'Verifying...' : '🔍 Verify on Google Maps'}
-                    </button>
-                  </div>
-                  {verifyError && <p style={{ fontFamily: 'Geist, sans-serif', fontSize: 13, color: '#EF4444', marginTop: 8 }}>{verifyError}</p>}
-                </div>
-
-                {/* Verified Card */}
-                {verifiedHospital && (
-                  <div style={{ background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: 12, padding: 16, marginBottom: 24, display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-                    <span style={{ fontSize: 18, color: '#22C55E' }}>✓</span>
-                    <div>
-                      <p style={{ fontFamily: 'Geist, sans-serif', fontWeight: 600, fontSize: 15, color: '#0F172A', marginBottom: 2 }}>{verifiedHospital.name}</p>
-                      <p style={{ fontFamily: 'Geist, sans-serif', fontSize: 13, color: '#64748b', marginBottom: 4 }}>{verifiedHospital.address}</p>
-                      <span style={{ fontFamily: 'Geist Mono, monospace', fontSize: 10, color: '#22C55E', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>✓ Verified</span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Specializations */}
-                {verifiedHospital && (
-                  <div style={{ marginBottom: 24 }}>
-                    <label style={{ fontFamily: 'Geist Mono, monospace', fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em', display: 'block', marginBottom: 8 }}>Specializations</label>
-                    <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-                      <input type="text" value={specializationInput} onChange={e => setSpecializationInput(e.target.value)}
-                        onKeyDown={e => { if (e.key === 'Enter' && specializationInput.trim()) { setSpecializations(p => [...p, specializationInput.trim()]); setSpecializationInput(''); e.preventDefault(); }}}
-                        placeholder="e.g. Cardiology"
-                        style={{ flex: 1, padding: '10px 14px', border: '1px solid #E2E8F0', borderRadius: 8, fontFamily: 'Geist, sans-serif', fontSize: 14, color: '#0F172A', outline: 'none' }} />
-                      <button type="button" onClick={() => { if (specializationInput.trim()) { setSpecializations(p => [...p, specializationInput.trim()]); setSpecializationInput(''); }}}
-                        style={{ padding: '10px 18px', background: '#0F766E', color: 'white', border: 'none', borderRadius: 8, fontFamily: 'Geist, sans-serif', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>Add</button>
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                      {specializations.map((s, i) => (
-                        <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(15,118,110,0.1)', color: '#0F766E', border: '1px solid rgba(15,118,110,0.2)', borderRadius: 100, padding: '4px 12px', fontFamily: 'Geist, sans-serif', fontSize: 13, fontWeight: 500 }}>
-                          {s}
-                          <button type="button" onClick={() => setSpecializations(p => p.filter((_, j) => j !== i))}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0F766E', fontSize: 16, lineHeight: 1, padding: 0 }}>×</button>
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Receptionist Name */}
-                {verifiedHospital && (
-                  <div style={{ marginBottom: 24 }}>
-                    <label style={{ fontFamily: 'Geist Mono, monospace', fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em', display: 'block', marginBottom: 8 }}>Receptionist Name</label>
-                    <input type="text" value={receptionistName} onChange={e => setReceptionistName(e.target.value)} placeholder="e.g. Priya Sharma"
-                      style={{ width: '100%', padding: '12px 16px', border: '1px solid #E2E8F0', borderRadius: 10, fontFamily: 'Geist, sans-serif', fontSize: 14, color: '#0F172A', outline: 'none', boxSizing: 'border-box' }} />
-                  </div>
-                )}
-
-                {registrationError && <p style={{ fontFamily: 'Geist, sans-serif', fontSize: 13, color: '#EF4444', marginBottom: 16 }}>{registrationError}</p>}
-
-                {verifiedHospital && (
-                  <button type="button"
-                    disabled={registering || specializations.length === 0 || !receptionistName.trim()}
-                    onClick={async () => {
-                      setRegistering(true); setRegistrationError(null);
-                      try {
-                        const res = await fetch(`${API_URL}/api/network/hospitals/register`, {
-                          method: 'POST', headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ ...verifiedHospital, specializations, receptionist_name: receptionistName })
-                        });
-                        const data = await res.json();
-                        if (res.status === 409 || data.code === 'DUPLICATE_PLACE_ID') {
-                          setRegistrationError('This hospital is already registered on the Vela network.');
-                        } else if (data.status === 'success') {
-                          setCredentials({ email: data.email, password: data.password, hospital_name: data.hospital_name });
-                          setNetworkHospitals(p => [{ id: data.hospital_id, name: verifiedHospital.name, address: verifiedHospital.address, place_id: verifiedHospital.place_id, lat: verifiedHospital.lat, lng: verifiedHospital.lng, specializations, receptionist_email: data.email, receptionist_name: receptionistName, created_at: new Date().toISOString() }, ...p]);
-                        } else {
-                          setRegistrationError(data.message || 'Registration failed.');
-                        }
-                      } catch { setRegistrationError('Registration failed. Please try again.'); }
-                      finally { setRegistering(false); }
-                    }}
-                    style={{ padding: '14px 32px', background: registering || specializations.length === 0 || !receptionistName.trim() ? '#94a3b8' : '#0F766E', color: 'white', border: 'none', borderRadius: 12, fontFamily: 'Geist, sans-serif', fontWeight: 700, fontSize: 15, cursor: registering || specializations.length === 0 || !receptionistName.trim() ? 'not-allowed' : 'pointer' }}>
-                    {registering ? 'Registering...' : '+ Register Hospital'}
-                  </button>
-                )}
-              </div>
-
-              {/* Registered Hospitals List */}
-              <div style={{ background: 'white', borderRadius: 20, border: '1px solid #E2E8F0', padding: 32 }}>
-                <h3 style={{ fontFamily: 'Instrument Serif, serif', fontSize: 22, color: '#0F172A', marginBottom: 20 }}>Vela Network Hospitals</h3>
-                {networkLoading ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    {[1,2,3].map(i => <div key={i} style={{ height: 64, background: '#F1F5F9', borderRadius: 10 }} />)}
-                  </div>
-                ) : networkHospitals.length === 0 ? (
-                  <p style={{ fontFamily: 'Geist, sans-serif', fontSize: 14, color: '#94a3b8', textAlign: 'center', padding: '32px 0' }}>No hospitals registered yet. Use the form above to add the first hospital to the Vela network.</p>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    {networkHospitals.map(h => (
-                      <div key={h.id} style={{ border: '1px solid #E2E8F0', borderRadius: 12, padding: '16px 20px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-                            <p style={{ fontFamily: 'Geist, sans-serif', fontWeight: 600, fontSize: 15, color: '#0F172A' }}>{h.name}</p>
-                            <span style={{ fontFamily: 'Geist Mono, monospace', fontSize: 10, color: '#C8B89A', fontWeight: 700, border: '1px solid rgba(200,184,154,0.4)', borderRadius: 100, padding: '2px 8px' }}>✦ ON VELA</span>
-                          </div>
-                          <p style={{ fontFamily: 'Geist, sans-serif', fontSize: 13, color: '#64748b', marginBottom: 6 }}>{h.address}</p>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
-                            {h.specializations.map((s, i) => <span key={i} style={{ fontFamily: 'Geist, sans-serif', fontSize: 11, color: '#0F766E', background: 'rgba(15,118,110,0.08)', borderRadius: 100, padding: '2px 8px' }}>{s}</span>)}
-                          </div>
-                          <p style={{ fontFamily: 'Geist Mono, monospace', fontSize: 11, color: '#94a3b8' }}>{h.receptionist_email}</p>
-                        </div>
-                        <p style={{ fontFamily: 'Geist Mono, monospace', fontSize: 11, color: '#94a3b8', whiteSpace: 'nowrap' }}>{new Date(h.created_at).toLocaleDateString()}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
             </div>
           )}
@@ -1365,6 +1082,69 @@ export default function HospitalManager() {
         </div>
       )}
 
+      {showAddWardModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="p-8 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <h3 className="text-xl font-bold text-slate-900">Configure New Ward</h3>
+                <p className="text-xs font-semibold text-slate-500">Initialize a clinical department in the hospital OS</p>
+              </div>
+              <button 
+                onClick={() => setShowAddWardModal(false)}
+                className="p-2 hover:bg-slate-100 rounded-xl text-slate-400 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="p-8 space-y-6">
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1.5">Ward Designation</label>
+                <input 
+                  type="text" 
+                  placeholder="e.g. ICU, General, Pediatric" 
+                  value={newWard.name}
+                  onChange={e => setNewWard({ ...newWard, name: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1.5">Department Type</label>
+                  <select 
+                    value={newWard.type}
+                    onChange={e => setNewWard({ ...newWard, type: e.target.value })}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none"
+                  >
+                    <option>General</option>
+                    <option>ICU</option>
+                    <option>ER</option>
+                    <option>OPD</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1.5">Floor Level</label>
+                  <input 
+                    type="number" 
+                    value={newWard.floor_number}
+                    onChange={e => setNewWard({ ...newWard, floor_number: parseInt(e.target.value) })}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm"
+                  />
+                </div>
+              </div>
+
+              <button 
+                onClick={handleAddWard}
+                className="w-full py-4 bg-blue-600 text-white rounded-2xl text-sm font-bold shadow-xl shadow-blue-200 hover:bg-blue-700 transition-all active:scale-[0.98]"
+              >
+                INITIALIZE WARD
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

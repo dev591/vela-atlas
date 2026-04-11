@@ -479,5 +479,4 @@ const PatientPortal = () => {
     </div>
   );
 };
-
 export default PatientPortal;

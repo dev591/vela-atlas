@@ -382,7 +382,7 @@ export default function VelaOwner() {
           <div style={{ fontFamily: 'Instrument Serif, serif', fontSize: 28, color: '#C8B89A' }}>V</div>
           <div>
             <div style={{ fontFamily: 'Geist Mono, monospace', fontSize: 10, color: '#C8B89A', letterSpacing: '0.2em', textTransform: 'uppercase' }}>Vela Command Center</div>
-            <div style={{ fontFamily: 'Geist, sans-serif', fontSize: 13, color: 'rgba(250,250,249,0.4)' }}>Dev Chalana · Owner</div>
+            <div style={{ fontFamily: 'Geist, sans-serif', fontSize: 13, color: 'rgba(250,250,249,0.4)' }}>System Administrator · Owner</div>
           </div>
         </div>
         <button type="button" onClick={() => { setSelectedPin(null); setShowTC(true); }}
