@@ -18,7 +18,9 @@ import {
   CheckCircle2,
   UserPlus,
   X,
-  CreditCard
+  CreditCard,
+  Stethoscope,
+  ShieldAlert
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react'
 import { Html5QrcodeScanner } from 'html5-qrcode'
@@ -127,6 +129,55 @@ export default function Receptionist() {
 
   const user = getUser()
   const hospitalId = localStorage.getItem("vela_hospital_id")
+
+  const [showAssignModal, setShowAssignModal] = useState(false)
+  const [selectedApt, setSelectedApt] = useState<any>(null)
+  const [doctorStats, setDoctorStats] = useState<any[]>([])
+  const [triageLevel, setTriageLevel] = useState('Routine')
+  const [assigning, setAssigning] = useState(false)
+
+  const fetchDoctorStats = async () => {
+    try {
+      if (!hospitalId) return
+      const res = await fetch(`${API_URL}/api/receptionist/doctors-status?hospital_id=${hospitalId}`)
+      const data = await res.json()
+      if (data.status === 'success') setDoctorStats(data.doctors)
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  const handleOpenAssign = (apt: any) => {
+    setSelectedApt(apt)
+    fetchDoctorStats()
+    setShowAssignModal(true)
+  }
+
+  const handleAssignSubmit = async (doctorId: string) => {
+    setAssigning(true)
+    try {
+      const res = await fetch(`${API_URL}/api/receptionist/assign-doctor`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          appointment_id: selectedApt.id,
+          doctor_id: doctorId,
+          triage_level: triageLevel
+        })
+      })
+      const data = await res.json()
+      if (data.status === 'success') {
+        toast.success(`Patient assigned. Ticket: ${data.ticket.ticket_number}`)
+        setShowAssignModal(false)
+        fetchAppointments()
+        fetchQueue()
+      } else throw new Error(data.message)
+    } catch (err: any) {
+      toast.error(err.message || "Assignment failed")
+    } finally {
+      setAssigning(false)
+    }
+  }
 
   const fetchQueue = async () => {
     setQueueLoading(true)
@@ -1173,20 +1224,27 @@ export default function Receptionist() {
                                                         </div>
                                                     </div>
                                                 </div>
-                                                <div className="flex gap-3">
-                                                    {(apt.status === 'scheduled' || apt.status === 'pending') ? (
-                                                        <button 
-                                                            onClick={() => handleMarkArrived(apt.id)}
-                                                            className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl text-[10px] font-mono uppercase tracking-widest hover:bg-blue-700 transition-all shadow-lg shadow-blue-500/20"
-                                                        >
-                                                            <CheckCircle2 size={14} /> Mark Arrived
-                                                        </button>
-                                                    ) : (
-                                                        <div className="px-6 py-3 border border-slate-100 bg-slate-50 text-slate-400 rounded-xl text-[10px] font-mono uppercase tracking-widest flex items-center gap-2">
-                                                            <CheckCircle2 size={14} className="text-green-500" /> Arrived
-                                                        </div>
-                                                    )}
-                                                </div>
+                                                    <div className="flex gap-3">
+                                                        {(apt.status === 'scheduled' || apt.status === 'pending') ? (
+                                                            <button 
+                                                                onClick={() => handleMarkArrived(apt.id)}
+                                                                className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl text-[10px] font-mono uppercase tracking-widest hover:bg-blue-700 transition-all shadow-lg shadow-blue-500/20"
+                                                            >
+                                                                <CheckCircle2 size={14} /> Mark Arrived
+                                                            </button>
+                                                        ) : apt.status === 'arrived' ? (
+                                                            <button 
+                                                                onClick={() => handleOpenAssign(apt)}
+                                                                className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-xl text-[10px] font-mono uppercase tracking-widest hover:bg-blue-600 transition-all shadow-lg shadow-blue-500/20"
+                                                            >
+                                                                <Stethoscope size={14} /> Assign Doctor
+                                                            </button>
+                                                        ) : (
+                                                            <div className="px-6 py-3 border border-slate-100 bg-slate-50 text-slate-400 rounded-xl text-[10px] font-mono uppercase tracking-widest flex items-center gap-2">
+                                                                <CheckCircle2 size={14} className="text-green-500" /> Handled
+                                                            </div>
+                                                        )}
+                                                    </div>
                                             </div>
                                         ))
                                     )}
@@ -1694,6 +1752,99 @@ export default function Receptionist() {
                 </div>
             </div>
         )}
+        {/* ── ASSIGN DOCTOR MODAL ── */}
+        {showAssignModal && selectedApt && (
+            <div className="fixed inset-0 bg-[#080808]/90 backdrop-blur-xl z-[200] flex items-center justify-center p-8 animate-in fade-in duration-500">
+                <div className="bg-white max-w-4xl w-full rounded-[40px] overflow-hidden shadow-2xl border border-white/20 animate-in slide-in-from-bottom-12 duration-700">
+                    <div className="p-12 border-b border-slate-100 flex justify-between items-start">
+                        <div>
+                            <span className="font-mono text-[10px] uppercase tracking-[0.4em] text-blue-600 font-bold mb-4 block">Deployment Console</span>
+                            <h2 className="font-serif italic text-5xl text-slate-900 m-0">Assign Specialist</h2>
+                            <p className="font-mono text-[10px] uppercase tracking-widest text-slate-400 mt-4">
+                                Patient: <span className="text-slate-900 font-bold font-sans normal-case">{selectedApt.patients?.name || selectedApt.patient_name}</span>
+                                <span className="mx-4 text-slate-200">|</span>
+                                VELA ID: <span className="text-blue-600 font-bold">{selectedApt.vela_id || 'LOCAL-REG'}</span>
+                            </p>
+                        </div>
+                        <button onClick={() => setShowAssignModal(false)} className="p-4 hover:bg-slate-50 rounded-full transition-colors">
+                            <X size={32} strokeWidth={1} text-slate-300 />
+                        </button>
+                    </div>
+
+                    <div className="p-12 max-h-[60vh] overflow-y-auto">
+                        <div className="mb-12">
+                            <label className="font-mono text-[9px] uppercase tracking-[0.2em] text-slate-500 mb-6 block">Triage Level & Priority</label>
+                            <div className="grid grid-cols-3 gap-4">
+                                {[
+                                    { id: 'Routine', color: 'bg-emerald-50 text-emerald-600', active: 'bg-emerald-600 text-white' },
+                                    { id: 'Stable', color: 'bg-blue-50 text-blue-600', active: 'bg-blue-600 text-white' },
+                                    { id: 'Urgent', color: 'bg-rose-50 text-rose-600', active: 'bg-rose-600 text-white' }
+                                ].map(level => (
+                                    <button
+                                        key={level.id}
+                                        onClick={() => setTriageLevel(level.id)}
+                                        className={`px-8 py-5 rounded-2xl font-mono text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-3 border border-transparent ${triageLevel === level.id ? level.active : 'bg-slate-50 text-slate-400 hover:border-slate-200'}`}
+                                    >
+                                        {level.id === 'Urgent' && <ShieldAlert size={16} />}
+                                        {level.id}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="font-mono text-[9px] uppercase tracking-[0.2em] text-slate-500 mb-6 block">Available Medical Personnel</label>
+                            <div className="grid grid-cols-1 gap-4">
+                                {doctorStats.length === 0 ? (
+                                    <div className="py-20 text-center border border-slate-100 border-dashed rounded-[32px]">
+                                        <p className="font-mono text-[10px] uppercase tracking-widest text-slate-400">No personnel currently listed as active in registry</p>
+                                    </div>
+                                ) : (
+                                    doctorStats.map(doc => (
+                                        <div key={doc.id} className="p-8 border border-slate-100 rounded-[32px] flex items-center justify-between hover:border-blue-600/30 transition-all bg-slate-50/30 group">
+                                            <div className="flex items-center gap-8">
+                                                <div className="w-16 h-16 rounded-2xl bg-white border border-slate-100 flex items-center justify-center text-slate-300">
+                                                    <Stethoscope size={28} />
+                                                </div>
+                                                <div>
+                                                    <h3 className="font-serif italic text-3xl text-slate-900 group-hover:text-blue-600 transition-all">Dr. {doc.name}</h3>
+                                                    <div className="flex gap-4 items-center mt-2">
+                                                        <span className="font-mono text-[9px] uppercase tracking-widest text-blue-600 bg-blue-50 px-3 py-1 rounded-full">{doc.specialization}</span>
+                                                        <span className={`w-1.5 h-1.5 rounded-full ${doc.online ? 'bg-emerald-500 animate-pulse' : 'bg-slate-200'}`}></span>
+                                                        <span className="font-mono text-[9px] uppercase tracking-widest text-slate-400">{doc.online ? 'Online' : 'Offline'}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            
+                                            <div className="flex items-center gap-12">
+                                                <div className="flex gap-8">
+                                                    <div className="text-center">
+                                                        <div className="font-serif italic text-4xl text-slate-900 leading-none">{doc.waiting_count}</div>
+                                                        <div className="font-mono text-[9px] uppercase tracking-widest text-slate-400 mt-2">Waiting</div>
+                                                    </div>
+                                                    <div className="text-center">
+                                                        <div className="font-serif italic text-4xl text-slate-900 leading-none">{doc.consulting_count}</div>
+                                                        <div className="font-mono text-[9px] uppercase tracking-widest text-slate-400 mt-2">Inside</div>
+                                                    </div>
+                                                </div>
+                                                <button 
+                                                    onClick={() => handleAssignSubmit(doc.id)}
+                                                    disabled={assigning}
+                                                    className="px-8 py-4 bg-slate-900 text-white rounded-2xl font-mono text-[10px] uppercase tracking-widest hover:bg-blue-600 transition-all shadow-xl shadow-slate-900/10"
+                                                >
+                                                    {assigning ? '...' : 'Assign'}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        )}
+
     </div>
   )
 }

@@ -314,7 +314,7 @@ const PatientDashboard = () => {
   const searchHospitals = async (keyword: string) => {
     const loc = userLocationRef.current;
     console.log("[FindCare] searchHospitals", keyword, !!mapInstanceRef.current, loc);
-    if (!loc) { console.error("[FindCare] Location not ready"); return; }
+    // REMOVED: Strict location check. We want to allow searching even if GPS is not ready.
 
     setIsSearchingHospitals(true);
     setHospitals([]);
@@ -324,8 +324,11 @@ const PatientDashboard = () => {
     let osmQuery = "";
     if (keyword && searchMode === "direct") {
       osmQuery = `[out:json][timeout:25];(node["amenity"~"hospital|clinic"]["name"~"${keyword}",i];node["healthcare"="hospital"]["name"~"${keyword}",i];way["amenity"~"hospital|clinic"]["name"~"${keyword}",i];);out center;`;
-    } else {
+    } else if (loc) {
       osmQuery = `[out:json][timeout:25];(node["amenity"="hospital"](around:${radius},${loc.lat},${loc.lng});node["amenity"="clinic"](around:${radius},${loc.lat},${loc.lng});node["healthcare"="doctor"](around:${radius},${loc.lat},${loc.lng});way["amenity"="hospital"](around:${radius},${loc.lat},${loc.lng}););out center;`;
+    } else {
+      // Fallback if no location and no direct keyword
+      osmQuery = `[out:json][timeout:25];(node["amenity"="hospital"];);out limit 5;`;
     }
 
     const OVERPASS_MIRRORS = [
@@ -372,7 +375,7 @@ const PatientDashboard = () => {
         .map((el: any) => {
           const elLat = el.lat ?? el.center?.lat;
           const elLng = el.lon ?? el.center?.lon;
-          const distance = elLat && elLng ? calculateDistance(loc.lat, loc.lng, elLat, elLng) : 999;
+          const distance = (elLat && elLng && loc) ? calculateDistance(loc.lat, loc.lng, elLat, elLng) : 0;
           return {
             id: String(el.id),
             name: el.tags.name,
@@ -388,7 +391,7 @@ const PatientDashboard = () => {
 
       const processedPartners = velaPartnerData.map(vh => ({
         ...vh,
-        distance: calculateDistance(loc.lat, loc.lng, vh.latitude, vh.longitude),
+        distance: loc ? calculateDistance(loc.lat, loc.lng, vh.latitude, vh.longitude) : 0,
         lat: vh.latitude,
         lng: vh.longitude,
         vicinity: vh.address,
@@ -761,40 +764,55 @@ const PatientDashboard = () => {
       )}
 
       {queueStatus && (
-        <div className="bg-blue-600 rounded-[20px] p-8 text-white shadow-xl animate-in fade-in slide-in-from-top-4">
-            <div className="flex justify-between items-center mb-6">
-                <div className="flex items-center gap-3">
-                    <div className="w-2 h-2 rounded-full bg-white animate-pulse"></div>
-                    <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-white/80">Live Queue Tracking</span>
+        <div className="bg-blue-600 rounded-[20px] p-8 text-white shadow-xl animate-in fade-in slide-in-from-top-4 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 blur-3xl -mr-32 -mt-32"></div>
+            
+            <div className="flex justify-between items-center mb-10 relative z-10">
+                <div className="flex items-center gap-4">
+                    <div className="w-2.5 h-2.5 rounded-full bg-white animate-pulse"></div>
+                    <div>
+                        <span className="font-mono text-[10px] uppercase tracking-[0.3em] text-white/80 block mb-1">Live Clinical Sequence</span>
+                        <div className="flex items-center gap-3">
+                            <h3 className="font-serif italic text-3xl">Assigned to Dr. {queueStatus.assigned_doctor || 'Specialist'}</h3>
+                            {queueStatus.triage_level === 'Urgent' && (
+                                <span className="bg-rose-500 text-white font-mono text-[8px] px-2 py-0.5 rounded-full animate-bounce uppercase font-bold tracking-widest flex items-center gap-1">
+                                    <ShieldAlert size={10} /> Urgent Priority
+                                </span>
+                            )}
+                        </div>
+                    </div>
                 </div>
-                <div className="font-mono text-[10px] uppercase tracking-[0.1em] bg-white/20 px-3 py-1 rounded-full">
-                    Arrived at {queueStatus.department}
+                <div className="text-right">
+                    <div className="font-mono text-[9px] uppercase tracking-[0.2em] text-white/50 mb-1">Facility Registry</div>
+                    <div className="font-mono text-sm tracking-wider font-bold">Vela {queueStatus.department || 'Main Hub'}</div>
                 </div>
             </div>
             
-            <div className="flex flex-col md:flex-row items-center gap-8">
+            <div className="flex flex-col md:flex-row items-center gap-12 relative z-10">
                 <div className="text-center md:text-left">
-                    <div className="font-serif italic text-6xl md:text-8xl mb-2">{queueStatus.queue_position}</div>
-                    <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-white/60">Position in Queue</div>
+                    <div className="font-serif italic text-7xl md:text-9xl mb-2">{queueStatus.position}</div>
+                    <div className="font-mono text-[10px] uppercase tracking-[0.4em] text-white/60">Position in Queue</div>
                 </div>
                 
-                <div className="flex-1 w-full space-y-4">
-                    <div className="h-1.5 bg-white/20 rounded-full overflow-hidden">
+                <div className="flex-1 w-full space-y-6">
+                    <div className="h-2 bg-white/20 rounded-full overflow-hidden">
                         <div 
-                            className="h-full bg-white transition-all duration-1000 ease-out"
-                            style={{ width: `${Math.max(10, 100 - (queueStatus.queue_position * 10))}%` }}
+                            className="h-full bg-white transition-all duration-1000 ease-out shadow-[0_0_20px_rgba(255,255,255,0.5)]"
+                            style={{ width: `${Math.max(8, 100 - (queueStatus.position * 12))}%` }}
                         ></div>
                     </div>
-                    <div className="flex justify-between font-mono text-[9px] uppercase tracking-widest text-white/50">
-                        <span>Check-in</span>
-                        <span>{queueStatus.wait_minutes}m Wait Est.</span>
-                        <span>Consultation</span>
+                    <div className="flex justify-between font-mono text-[10px] uppercase tracking-[0.2em] text-white/50">
+                        <span className="flex items-center gap-2"><MapPin size={12}/> Arrival</span>
+                        <span className="text-white font-bold">{queueStatus.estimated_wait}m Est. Wait</span>
+                        <span className="flex items-center gap-2">Consultation <ChevronRight size={12}/></span>
                     </div>
                 </div>
 
-                <div className="bg-white/10 p-6 rounded-2xl flex flex-col items-center justify-center border border-white/10 min-w-[140px]">
-                    <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-white/50 mb-2">Ticket ID</span>
-                    <span className="font-mono text-lg font-bold">{queueStatus.ticket_number}</span>
+                <div className="bg-white/10 backdrop-blur-md p-8 rounded-[32px] flex flex-col items-center justify-center border border-white/10 min-w-[180px]">
+                    <span className="font-mono text-[9px] uppercase tracking-[0.2em] text-white/50 mb-3">Electronic Ticket</span>
+                    <span className="font-mono text-2xl font-black tracking-tighter">{queueStatus.ticket_number}</span>
+                    <div className="w-full h-px bg-white/10 my-4"></div>
+                    <div className="font-mono text-[8px] uppercase tracking-widest text-emerald-400 font-bold">Ready for scan</div>
                 </div>
             </div>
         </div>
@@ -1324,8 +1342,11 @@ const PatientDashboard = () => {
                    </div>
                 </div>
             ) : hospitals.length === 0 ? (
-                <div className="h-full flex items-center justify-center border border-slate-100 border-dashed rounded-xl" style={{ minHeight: 200 }}>
-                   <p className="font-mono text-[10px] uppercase tracking-widest text-slate-400">Describe symptoms to find nearby care</p>
+                <div className="h-full flex items-center justify-center border border-slate-100 border-dashed rounded-3xl" style={{ minHeight: 180, background: 'rgba(248, 250, 252, 0.5)' }}>
+                   <div className="text-center p-8">
+                     <p className="font-serif italic text-xl text-slate-400 mb-2">No facilities found</p>
+                     <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-slate-400 max-w-xs mx-auto">Try searching for a different city or hospital name, or describe your symptoms</p>
+                   </div>
                 </div>
             ) : (
                 hospitals.map((h, i) => (

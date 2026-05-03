@@ -32,7 +32,12 @@ export default function Doctor() {
 
   const fetchQueue = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/receptionist/queue`)
+      const staffMember = getUser()
+      const url = staffMember?.staff_id 
+        ? `${API_URL}/api/receptionist/queue?doctor_id=${staffMember.staff_id}`
+        : `${API_URL}/api/receptionist/queue`
+      
+      const res = await fetch(url)
       const data = await res.json()
       if (res.ok && data.status === 'success') {
         setQueue(data.queue || [])
@@ -132,10 +137,14 @@ export default function Doctor() {
   const callNext = async () => {
     setNextLoading(true)
     try {
+      const staffMember = getUser()
       const res = await fetch(`${API_URL}/api/doctor/next-patient`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ department: 'General' })
+        body: JSON.stringify({ 
+            department: 'General',
+            doctor_id: staffMember?.staff_id
+        })
       })
       const data = await res.json()
       if (!res.ok || data.status !== 'success') throw new Error(data.message || 'No patients')
